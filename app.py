@@ -4,195 +4,165 @@ from datetime import datetime, date
 import pandas as pd
 import io
 
+# --- 1. إعدادات الصفحة والتصميم ---
 st.set_page_config(page_title="إدارة بيت الشباب محمدي يوسف", page_icon="🛏️", layout="wide")
 
 st.markdown("""
 <style>
-    .main {direction: RTL; text-align: right; font-family: 'Cairo', sans-serif;}
-    .stButton>button {width: 100%; font-size: 18px;}
-    h1, h2, h3 {text-align: center; color: #1e40af;}
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+    html, body, [class*="css"] {
+        direction: RTL; text-align: right; font-family: 'Cairo', sans-serif;
+    }
+    .stButton>button {width: 100%; border-radius: 8px; font-weight: bold;}
+    .main-header {text-align: center; color: #1e40af; border-bottom: 2px solid #1e40af; padding-bottom: 10px;}
+    .footer {text-align: center; color: #6b7280; margin-top: 50px; font-size: 14px; border-top: 1px solid #e5e7eb; padding-top: 10px;}
 </style>
 """, unsafe_allow_html=True)
 
-# نظام المستخدمين + الصلاحيات
+# --- 2. الإعدادات والبيانات الثابتة ---
 USERS = {
     "admin": {"password": "admin123", "role": "admin"},
     "reception": {"password": "recep2026", "role": "user"}
-    # أضف مستخدمين جدد هنا
 }
 
-# الغرف الجديدة مع عدد الأسرة
-rooms_config = {
+ROOMS_CONFIG = {
     "جناح ذكور": {
         "غرفة 01": 6, "غرفة 02": 6, "غرفة 03": 6, "غرفة 04": 6,
-        "مرقد ذكور": 3, "مرقد ذكور 02": 4
+        "مرقد ذكور 01": 3, "مرقد ذكور 02": 4
     },
     "جناح إناث": {
         "غرفة 06": 6, "غرفة 07": 6, "غرفة 08": 6, "غرفة 09": 6,
         "مرقد اناث 01": 3, "مرقد اناث 02": 4
     }
 }
-all_rooms = []
-for group in rooms_config.values():
-    all_rooms.extend(group.keys())
-ghoraf = all_rooms
-TOTAL_BEDS = sum(sum(group.values()) for group in rooms_config.values())
 
-BED_PRICE = 400  # دج لليلة الواحدة
+ALL_ROOM_NAMES = [room for group in ROOMS_CONFIG.values() for room in group.keys()]
+BED_PRICE = 400 
 
+# --- 3. إدارة الملفات ---
 def load_data():
     try:
-        with open("data.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {room: {"occupied": 0, "residents": [], "reservations": []} for room in ghoraf}
+        with open("youth_hostel_db.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if "archive" not in data: data["archive"] = []
+            return data
+    except FileNotFoundError:
+        initial = {room: {"occupied": 0, "residents": []} for room in ALL_ROOM_NAMES}
+        initial["archive"] = []
+        return initial
 
 def save_data():
-    with open("data.json", "w", encoding="utf-8") as f:
-        json.dump(st.session_state.data, f, ensure_ascii=False, indent=2)
+    with open("youth_hostel_db.json", "w", encoding="utf-8") as f:
+        json.dump(st.session_state.db, f, ensure_ascii=False, indent=4)
 
-# تسجيل الدخول
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.username = None
-    st.session_state.role = None
+if "db" not in st.session_state:
+    st.session_state.db = load_data()
 
-if not st.session_state.logged_in:
-    st.title("🔐 إدارة بيت الشباب محمدي يوسف")
-    username = st.text_input("اسم المستخدم")
-    password = st.text_input("كلمة السر", type="password")
+# --- 4. نظام تسجيل الدخول ---
+if "auth" not in st.session_state:
+    st.session_state.auth = False
+
+if not st.session_state.auth:
+    st.markdown("<h1 class='main-header'>🔐 تسجيل الدخول للنظام</h1>", unsafe_allow_html=True)
+    user = st.text_input("اسم المستخدم")
+    pw = st.text_input("كلمة السر", type="password")
     if st.button("دخول"):
-        if username in USERS and USERS[username]["password"] == password:
-            st.session_state.logged_in = True
-            st.session_state.username = username
-            st.session_state.role = USERS[username]["role"]
+        if user in USERS and USERS[user]["password"] == pw:
+            st.session_state.auth = True
+            st.session_state.user_role = USERS[user]["role"]
+            st.session_state.user_name = user
             st.rerun()
         else:
-            st.error("اسم المستخدم أو كلمة السر خاطئة")
+            st.error("خطأ في البيانات")
+    st.markdown("<div class='footer'>مطور من طرف ®ridha_merzoug®</div>", unsafe_allow_html=True)
     st.stop()
 
-st.sidebar.title(f"🛏️ مرحباً {st.session_state.username} ({st.session_state.role})")
+# --- 5. القائمة الجانبية ---
+st.sidebar.title(f"مرحباً: {st.session_state.user_name}")
+menu = ["🏠 لوحة التحكم", "👤 تسجيل مقيم", "📋 قائمة المقيمين", "📊 الأرشيف والتقارير"]
+if st.session_state.user_role == "admin":
+    menu.insert(1, "⚙️ إدارة الغرف")
 
-# قائمة الصفحات حسب الصلاحية
-pages = ["لوحة التحكم", "تسجيل دخول مقيم", "قائمة المقيمين", "الحجوزات", "إحصائيات متقدمة"]
-if st.session_state.role == "admin":
-    pages.insert(1, "إدارة الغرف")
+choice = st.sidebar.radio("انتقل إلى:", menu)
+st.sidebar.markdown("---")
+st.sidebar.write("🏷️ **المطور:**")
+st.sidebar.code("®ridha_merzoug®")
 
-page = st.sidebar.radio("القائمة", pages)
+# --- 6. الصفحات والوظائف ---
 
-data = st.session_state.setdefault("data", load_data())
+if choice == "🏠 لوحة التحكم":
+    st.markdown("<h1 class='main-header'>🏠 حالة الإشغال الفوري</h1>", unsafe_allow_html=True)
+    for group, rooms in ROOMS_CONFIG.items():
+        st.subheader(group)
+        cols = st.columns(len(rooms))
+        for i, (r_name, max_b) in enumerate(rooms.items()):
+            occ = st.session_state.db.get(r_name, {"occupied": 0})["occupied"]
+            with cols[i]:
+                color = "#dcfce7" if occ == 0 else ("#fee2e2" if occ >= max_b else "#fef9c3")
+                st.markdown(f"<div style='background-color:{color}; padding:10px; border-radius:8px; text-align:center; border:1px solid #ccc;'><b>{r_name}</b><br>{occ}/{max_b}</div>", unsafe_allow_html=True)
 
-# ────────────────────────────────────────────────
-#               لوحة التحكم مع الجدول أولاً
-# ────────────────────────────────────────────────
-if page == "لوحة التحكم":
-    st.title("🏠 لوحة التحكم - نظرة عامة على الغرف")
+elif choice == "⚙️ إدارة الغرف":
+    st.markdown("<h1 class='main-header'>⚙️ إدارة الغرف (أدمن)</h1>", unsafe_allow_html=True)
+    for r_name in ALL_ROOM_NAMES:
+        max_v = next(v for g in ROOMS_CONFIG.values() for k,v in g.items() if k == r_name)
+        curr = st.session_state.db[r_name]["occupied"]
+        st.session_state.db[r_name]["occupied"] = st.number_input(f"إشغال {r_name}", 0, max_v, curr)
+    if st.button("حفظ التعديلات"):
+        save_data()
+        st.success("تم التحديث")
 
-    # عرض الجدول لكل مجموعة
-    for group_name, group in rooms_config.items():
-        st.subheader(group_name)
-
-        table_data = []
-        for room, max_beds in group.items():
-            occupied = data.get(room, {"occupied": 0})["occupied"]
-            free = max_beds - occupied
-
-            # تحديد اللون والحالة
-            if occupied == 0:
-                status = "🟢 فارغة تمامًا"
-                color = "background-color: #d4edda; color: black;"
-            elif occupied == max_beds:
-                status = "🔴 ممتلئة"
-                color = "background-color: #f8d7da; color: black;"
-            else:
-                status = f"🟡 مشغولة جزئيًا ({occupied}/{max_beds})"
-                color = "background-color: #fff3cd; color: black;"
-
-            table_data.append([room, max_beds, occupied, free, status])
-
-        # إنشاء DataFrame
-        df = pd.DataFrame(table_data, columns=["اسم الغرفة", "إجمالي الأسرة", "مشغولة", "فارغة", "الحالة"])
-
-        # تنسيق الجدول بالألوان
-        def highlight_status(val):
-            if "فارغة" in val:
-                return "background-color: #d4edda; color: black;"
-            elif "ممتلئة" in val:
-                return "background-color: #f8d7da; color: black;"
-            elif "مشغولة" in val:
-                return "background-color: #fff3cd; color: black;"
-            return ""
-
-        styled_df = df.style.map(highlight_status, subset=["الحالة"])
-
-        st.dataframe(
-            styled_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-    # إجمالي عام تحت الجداول
-    total_occupied = sum(r["occupied"] for r in data.values())
-    st.markdown("---")
-    cols = st.columns(3)
-    cols[0].metric("إجمالي الأسرة الكلي", TOTAL_BEDS)
-    cols[1].metric("المشغولة حاليًا", total_occupied)
-    cols[2].metric("الفارغة", TOTAL_BEDS - total_occupied)
-
-# ────────────────────────────────────────────────
-#               باقي الصفحات (كما هي)
-# ────────────────────────────────────────────────
-
-# إدارة الغرف (للأدمن فقط)
-elif page == "إدارة الغرف":
-    st.title("🛏️ إدارة الغرف")
-    for group_name, group in rooms_config.items():
-        st.subheader(group_name)
-        for room, max_beds in group.items():
-            current = data.get(room, {"occupied": 0})["occupied"]
-            new_occ = st.slider(f"عدد الأسرة المشغولة في {room} (أقصى {max_beds})", 0, max_beds, current, key=f"slider_{room}")
-            if st.button(f"حفظ {room}"):
-                data[room]["occupied"] = new_occ
-                save_data()
-                st.success(f"تم حفظ {room}")
-
-# تسجيل دخول مقيم
-elif page == "تسجيل دخول مقيم":
-    st.title("👤 تسجيل دخول مقيم")
-    col1, col2 = st.columns(2)
-    with col1:
-        name = st.text_input("اسم المقيم")
-        gender = st.radio("الجنس", ["ذكر", "أنثى"])
-        age_group = st.radio("الفئة", ["رجل/امرأة", "طفل"])
-        nationality = st.selectbox("الجنسية", ["جزائري", "أجنبي"])
-        room = st.selectbox("الغرفة", ghoraf)
-    with col2:
+elif choice == "👤 تسجيل مقيم":
+    st.markdown("<h1 class='main-header'>👤 تسجيل وافد جديد</h1>", unsafe_allow_html=True)
+    with st.form("entry"):
+        name = st.text_input("اسم المقيم بالكامل")
+        room = st.selectbox("الغرفة", ALL_ROOM_NAMES)
         is_free = st.checkbox("إقامة مجانية")
-        from_who = st.text_input("من طرف من؟")
-    notes = st.text_area("ملاحظات")
+        if st.form_submit_button("تأكيد"):
+            max_b = next(v for g in ROOMS_CONFIG.values() for k,v in g.items() if k == room)
+            if st.session_state.db[room]["occupied"] < max_b:
+                res = {"name": name, "room": room, "is_free": is_free, "entry": datetime.now().strftime("%Y-%m-%d %H:%M")}
+                st.session_state.db[room]["residents"].append(res)
+                st.session_state.db[room]["occupied"] += 1
+                save_data()
+                st.success("تم!")
+            else: st.error("ممتلئة")
 
-    if st.button("تسجيل"):
-        max_beds = next(v for g in rooms_config.values() for k, v in g.items() if k == room)
-        if data[room]["occupied"] >= max_beds:
-            st.error("الغرفة ممتلئة")
-        else:
-            entry_time = datetime.now().strftime("%Y-%m-%d %H:%M")
-            data[room]["residents"].append({
-                "name": name,
-                "gender": gender,
-                "age_group": age_group,
-                "nationality": nationality,
-                "entry_time": entry_time,
-                "exit_time": None,
-                "is_free": is_free,
-                "from_who": from_who,
-                "notes": notes
-            })
-            data[room]["occupied"] += 1
+elif choice == "📋 قائمة المقيمين":
+    st.markdown("<h1 class='main-header'>📋 المقيمين الحاليين</h1>", unsafe_allow_html=True)
+    active = []
+    for r in ALL_ROOM_NAMES:
+        for idx, res in enumerate(st.session_state.db[r]["residents"]):
+            days = max(1, (datetime.now() - datetime.strptime(res["entry"], "%Y-%m-%d %H:%M")).days)
+            amt = 0 if res["is_free"] else days * BED_PRICE
+            active.append({"الاسم": res["name"], "الغرفة": r, "الدخول": res["entry"], "المبلغ": amt, "idx": idx})
+    
+    if active:
+        df = pd.DataFrame(active)
+        st.table(df.drop(columns="idx"))
+        target = st.selectbox("خروج مقيم:", range(len(active)), format_func=lambda x: active[x]["الاسم"])
+        if st.button("تسجيل خروج ودفع"):
+            sel = active[target]
+            arch = st.session_state.db[sel["الغرفة"]]["residents"].pop(sel["idx"])
+            arch["exit"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            arch["paid"] = sel["المبلغ"]
+            st.session_state.db["archive"].append(arch)
+            st.session_state.db[sel["الغرفة"]]["occupied"] -= 1
             save_data()
-            st.success("تم التسجيل")
+            st.rerun()
 
-# (باقي الصفحات: قائمة المقيمين، الحجوزات، إحصائيات متقدمة)
-# إذا أردت إكمالها أو تعديلها أكثر، أخبرني
+elif choice == "📊 الأرشيف والتقارير":
+    st.markdown("<h1 class='main-header'>📊 الأرشيف والتقارير</h1>", unsafe_allow_html=True)
+    if st.session_state.db["archive"]:
+        df_arch = pd.DataFrame(st.session_state.db["archive"])
+        st.dataframe(df_arch, use_container_width=True)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_arch.to_excel(writer, index=False)
+        st.download_button("📥 تحميل Excel", output.getvalue(), f"تقرير_{date.today()}.xlsx")
 
-st.caption("نظام إدارة بيت الشباب محمدي يوسف © 2026")
+# --- التوقيع النهائي ---
+st.markdown("<div class='footer'>نظام إدارة بيت الشباب محمدي يوسف<br><b>مطور من طرف ®ridha_merzoug®</b></div>", unsafe_allow_html=True)
+
+if st.sidebar.button("تسجيل الخروج"):
+    st.session_state.auth = False
+    st.rerun()
