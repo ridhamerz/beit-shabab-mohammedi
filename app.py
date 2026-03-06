@@ -4,208 +4,172 @@ from datetime import datetime, date
 import pandas as pd
 import io
 
-# --- 1. إعدادات الصفحة والتصميم المحسن للهواتف ---
+# --- 1. إعدادات الصفحة والتصميم ---
 st.set_page_config(page_title="إدارة بيت الشباب محمدي يوسف", page_icon="🏢", layout="wide")
 
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-    
-    /* تنسيق عام */
-    html, body, [class*="css"] { 
-        direction: RTL; 
-        text-align: right; 
-        font-family: 'Cairo', sans-serif; 
-    }
-
-    /* حل مشكلة الخط العمودي وتحسين العرض على الهاتف */
-    [data-testid="column"] {
-        width: 100% !important;
-        flex: 1 1 calc(100% - 1rem) !important;
-        min-width: 100% !important;
-    }
-
-    /* تنسيق الأزرار */
-    .stButton>button { 
-        width: 100%; 
-        border-radius: 10px; 
-        font-weight: bold; 
-        background-color: #1e40af; 
-        color: white; 
-        border: none;
-        padding: 0.5rem;
-    }
-
-    /* العنوان الرئيسي */
-    .main-header { 
-        text-align: center; 
-        color: #1e40af; 
-        background: #f0f4ff; 
-        padding: 20px; 
-        border-radius: 15px; 
-        margin-bottom: 20px; 
-        border: 2px solid #1e40af; 
-    }
-
-    /* التوقيع السفلي */
-    .footer { 
-        position: fixed; 
-        left: 0; 
-        bottom: 0; 
-        width: 100%; 
-        background-color: #f8fafc; 
-        color: #475569; 
-        text-align: center; 
-        padding: 8px; 
-        border-top: 1px solid #e2e8f0; 
-        font-weight: bold; 
-        z-index: 100; 
-    }
+    html, body, [class*="css"] { direction: RTL; text-align: right; font-family: 'Cairo', sans-serif; }
+    [data-testid="stSidebarNav"] { display: none; }
+    .stButton>button { width: 100%; border-radius: 10px; font-weight: bold; background-color: #1e40af; color: white; padding: 10px; }
+    .main-header { text-align: center; color: #1e40af; background: #f0f4ff; padding: 15px; border-radius: 12px; border: 2px solid #1e40af; margin-bottom: 20px; }
+    .footer { text-align: center; color: #475569; padding: 15px; font-weight: bold; font-size: 13px; border-top: 1px solid #e2e8f0; margin-top: 30px; }
+    .stats-table { width: 100%; border-collapse: collapse; margin: 10px 0; border: 1px solid #ddd; }
+    .stats-table td { padding: 12px; border: 1px solid #ddd; text-align: center; }
+    .receipt-box { border: 2px dashed #333; padding: 20px; background: #fff; font-family: 'Courier New', monospace; direction: ltr; text-align: left; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. البيانات والوظائف الأساسية ---
-USERS = {"admin": {"password": "admin123", "role": "admin"}, "reception": {"password": "recep2026", "role": "user"}}
-
+# --- 2. إدارة البيانات والإعدادات ---
 ROOMS_CONFIG = {
-    "جناح ذكور": {"غرفة 01": 6, "غرفة 02": 6, "غرفة 03": 6, "غرفة 04": 6, "مرقد ذكور 01": 3, "مرقد ذكور 02": 4},
+    "جناح ذكور": {"غرفة 01": 6, "غرفة 02": 6, "غرفة 03": 6, "غرفة 04": 6, "غرفة 05": 6, "مرقد ذكور 01": 3, "مرقد ذكور 02": 4},
     "جناح إناث": {"غرفة 06": 6, "غرفة 07": 6, "غرفة 08": 6, "غرفة 09": 6, "مرقد اناث 01": 3, "مرقد اناث 02": 4}
 }
 ALL_ROOM_NAMES = [room for group in ROOMS_CONFIG.values() for room in group.keys()]
-BED_PRICE = 400 
+BED_PRICE = 400
 
-def load_data():
+def load_all_data():
     try:
-        with open("youth_hostel_final_db.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if "archive" not in data: data["archive"] = []
-            return data
+        with open("hostel_pro_v4.json", "r", encoding="utf-8") as f:
+            return json.load(f)
     except:
-        return {room: {"residents": []} for room in ALL_ROOM_NAMES} | {"archive": []}
+        return {
+            "rooms": {room: {"residents": []} for room in ALL_ROOM_NAMES},
+            "archive": [],
+            "users": {"admin": "admin123", "reception": "recep2026"}
+        }
 
-def save_data():
-    with open("youth_hostel_final_db.json", "w", encoding="utf-8") as f:
+def save_all_data():
+    with open("hostel_pro_v4.json", "w", encoding="utf-8") as f:
         json.dump(st.session_state.db, f, ensure_ascii=False, indent=4)
 
 if "db" not in st.session_state:
-    st.session_state.db = load_data()
+    st.session_state.db = load_all_data()
 
 # --- 3. نظام تسجيل الدخول ---
 if "auth" not in st.session_state: st.session_state.auth = False
 
 if not st.session_state.auth:
-    st.markdown("<div class='main-header'><h1>🏢 إدارة بيت الشباب محمدي يوسف</h1></div>", unsafe_allow_html=True)
-    user = st.text_input("👤 اسم المستخدم")
-    pw = st.text_input("🔑 كلمة السر", type="password")
-    if st.button("تسجيل الدخول"):
-        if user in USERS and USERS[user]["password"] == pw:
-            st.session_state.auth, st.session_state.user_role, st.session_state.user_name = True, USERS[user]["role"], user
+    st.markdown("<div class='main-header'><h1>إدارة بيت الشباب محمدي يوسف</h1></div>", unsafe_allow_html=True)
+    u_input = st.text_input("👤 اسم المستخدم")
+    p_input = st.text_input("🔑 كلمة السر", type="password")
+    if st.button("دخول"):
+        if u_input in st.session_state.db["users"] and st.session_state.db["users"][u_input] == p_input:
+            st.session_state.auth = True
+            st.session_state.user_name = u_input
             st.rerun()
-        else:
-            st.error("بيانات خاطئة")
-    st.markdown("<div class='footer'>مطور من طرف ®ridha_merzoug®</div>", unsafe_allow_html=True)
+        else: st.error("عذراً، كلمة المرور غير صحيحة")
     st.stop()
 
-# --- 4. القائمة الجانبية ---
-st.sidebar.markdown(f"### 👤 المستخدم: {st.session_state.user_name}")
-menu = ["📊 الإحصائيات المالية", "🏨 إدارة الغرف والحجز", "👥 قائمة النزلاء", "📂 الأرشيف"]
-choice = st.sidebar.radio("القائمة الرئيسية", menu)
+# --- 4. القائمة الجانبية والتحكم بكلمات المرور ---
+st.sidebar.title(f"مرحباً {st.session_state.user_name}")
+menu = ["🏨 إدارة الغرف والحجز", "👥 قائمة النزلاء", "📊 الإحصائيات", "📂 الأرشيف"]
+choice = st.sidebar.selectbox("القائمة:", menu)
 
-# --- 5. الصفحات والوظائف ---
+if st.session_state.user_name == "admin":
+    with st.sidebar.expander("🔐 تغيير كلمات المرور"):
+        target_user = st.selectbox("اختر الحساب", ["admin", "reception"])
+        new_pass = st.text_input("كلمة المرور الجديدة", type="password")
+        if st.button("حفظ التغيير"):
+            st.session_state.db["users"][target_user] = new_pass
+            save_all_data()
+            st.success(f"تم تغيير كلمة مرور {target_user}")
 
-# الصفحة 1: الإحصائيات
-if choice == "📊 الإحصائيات المالية":
-    st.markdown("<div class='main-header'><h2>📊 الملخص الإحصائي والمالي</h2></div>", unsafe_allow_html=True)
-    
-    current_res = []
-    for r in ALL_ROOM_NAMES: current_res.extend(st.session_state.db[r]["residents"])
-    
-    males = len([p for p in current_res if p['gender'] == "ذكر"])
-    females = len([p for p in current_res if p['gender'] == "أنثى"])
-    foreigners = len([p for p in current_res if p['nation'].lower() not in ["جزائرية", "جزائري"]])
-    
-    today = date.today().strftime("%Y-%m-%d")
-    month = date.today().strftime("%Y-%m")
-    daily_rev = sum(e.get("paid_val", 0) for e in st.session_state.db["archive"] if e.get("exit", "").startswith(today))
-    monthly_rev = sum(e.get("paid_val", 0) for e in st.session_state.db["archive"] if e.get("exit", "").startswith(month))
+if st.sidebar.button("تسجيل الخروج"):
+    st.session_state.auth = False
+    st.rerun()
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("👥 المقيمين حالياً", f"{len(current_res)}")
-    c2.metric("💰 دخل اليوم", f"{daily_rev} دج")
-    c3.metric("📅 دخل الشهر", f"{monthly_rev} دج")
-    
-    st.markdown("---")
-    cc1, cc2, cc3 = st.columns(3)
-    cc1.metric("👨 الذكور", males)
-    cc2.metric("👩 الإناث", females)
-    cc3.metric("🌍 الأجانب", foreigners)
+# --- 5. منطق الصفحات ---
 
-# الصفحة 2: إدارة الغرف والحجز
-elif choice == "🏨 إدارة الغرف والحجز":
-    st.markdown("<div class='main-header'><h2>🏨 وضعية الغرف محمدي يوسف</h2></div>", unsafe_allow_html=True)
-    
-    status_data = []
+# الصفحة 1: الغرف
+if choice == "🏨 إدارة الغرف والحجز":
+    st.markdown("<div class='main-header'><h2>🏨 وضعية الغرف والتسجيل</h2></div>", unsafe_allow_html=True)
+    status_list = []
     for r in ALL_ROOM_NAMES:
+        occ = len(st.session_state.db["rooms"][r]["residents"])
         max_b = next(v for g in ROOMS_CONFIG.values() for k,v in g.items() if k == r)
-        occ = len(st.session_state.db[r]["residents"])
-        status_data.append({"الغرفة": r, "السعة": max_b, "المشغول": occ, "المتاح": max_b - occ, "الحالة": "🔴 ممتلئة" if occ >= max_b else "🟢 متاحة"})
-    st.table(pd.DataFrame(status_data))
+        status_list.append({"الغرفة": r, "المشغول": occ, "المتاح": max_b - occ, "الحالة": "🟢" if occ < max_b else "🔴"})
+    st.table(pd.DataFrame(status_list))
 
     st.markdown("---")
-    st.subheader("➕ تسجيل مقيم جديد")
-    with st.form("add_form"):
-        f_name = st.text_input("اسم المقيم الكامل")
-        f_room = st.selectbox("اختر الغرفة", ALL_ROOM_NAMES)
-        f_gender = st.selectbox("الجنس", ["ذكر", "أنثى"])
-        f_nation = st.text_input("الجنسية", "جزائرية")
-        f_kids = st.number_input("عدد الأطفال", 0, 10)
-        f_free = st.checkbox("إقامة مجانية")
-        if st.form_submit_button("حفظ البيانات"):
-            max_b = next(v for g in ROOMS_CONFIG.values() for k,v in g.items() if k == f_room)
-            if len(st.session_state.db[f_room]["residents"]) < max_b:
-                st.session_state.db[f_room]["residents"].append({
-                    "name": f_name, "gender": f_gender, "nation": f_nation, 
-                    "kids": f_kids, "is_free": f_free, 
-                    "entry": datetime.now().strftime("%Y-%m-%d %H:%M")
-                })
-                save_data(); st.success("تم التسجيل"); st.rerun()
-            else: st.error("الغرفة ممتلئة")
+    st.subheader("➕ تسجيل نزيل جديد")
+    with st.form("add_res"):
+        name = st.text_input("الاسم الكامل")
+        room_sel = st.selectbox("الغرفة", ALL_ROOM_NAMES)
+        gender = st.selectbox("الجنس", ["ذكر", "أنثى"])
+        nation = st.text_input("الجنسية", "جزائرية")
+        if st.form_submit_button("تأكيد الحجز"):
+            st.session_state.db["rooms"][room_sel]["residents"].append({
+                "name": name, "gender": gender, "nation": nation, 
+                "entry": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "by_user": st.session_state.user_name
+            })
+            save_all_data(); st.success("تم الحجز بنجاح"); st.rerun()
 
-# الصفحة 3: قائمة النزلاء
+# الصفحة 2: النزلاء والوصل
 elif choice == "👥 قائمة النزلاء":
-    st.markdown("<div class='main-header'><h2>👥 تفاصيل النزلاء حسب الغرفة</h2></div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-header'><h2>👥 النزلاء والعمليات</h2></div>", unsafe_allow_html=True)
     for r in ALL_ROOM_NAMES:
-        res_list = st.session_state.db[r]["residents"]
-        with st.expander(f"🏠 {r} - ({len(res_list)} فرد)", expanded=False):
-            if res_list:
-                for idx, p in enumerate(res_list):
-                    days = max(1, (datetime.now() - datetime.strptime(p["entry"], "%Y-%m-%d %H:%M")).days)
-                    total = 0 if p["is_free"] else days * BED_PRICE
-                    col_a, col_b, col_c = st.columns([3,2,1])
-                    col_a.write(f"**{p['name']}** ({p['gender']}) - {p['nation']}")
-                    col_b.write(f"المبلغ: {total} دج")
-                    if col_c.button("خروج", key=f"btn_{r}_{idx}"):
-                        p.update({"exit": datetime.now().strftime("%Y-%m-%d %H:%M"), "paid_val": total, "room": r})
+        residents = st.session_state.db["rooms"][r]["residents"]
+        if residents:
+            with st.expander(f"🏠 {r} - ({len(residents)} مقيم)"):
+                for i, p in enumerate(residents):
+                    st.write(f"👤 **{p['name']}** | {p['gender']} | سجل بواسطة: {p.get('by_user','غير معروف')}")
+                    if st.button(f"تسجيل خروج {p['name']}", key=f"ex_{r}_{i}"):
+                        p.update({"exit": datetime.now().strftime("%Y-%m-%d %H:%M"), "paid": BED_PRICE, "room": r})
                         st.session_state.db["archive"].append(p)
-                        st.session_state.db[r]["residents"].pop(idx)
-                        save_data(); st.rerun()
-            else: st.write("فارغة")
+                        st.session_state.db["rooms"][r]["residents"].pop(i)
+                        save_all_data()
+                        st.session_state.last_receipt = p # حفظ بيانات آخر وصل لعرضه
+                        st.rerun()
+
+    if "last_receipt" in st.session_state:
+        st.info("تم تسجيل الخروج بنجاح. يمكنك معاينة الوصل أدناه:")
+        res = st.session_state.last_receipt
+        receipt_text = f"""
+        ===================================
+        بيت الشباب محمدي يوسف
+        وصل استلام رقم: {datetime.now().strftime('%S%M%H')}
+        -----------------------------------
+        النزيل: {res['name']}
+        الغرفة: {res['room']}
+        الدخول: {res['entry']}
+        الخروج: {res['exit']}
+        المبلغ: {res['paid']} دج
+        -----------------------------------
+        شكراً لزيارتكم
+        ===================================
+        """
+        st.code(receipt_text)
+        if st.button("إخفاء الوصل"): del st.session_state.last_receipt; st.rerun()
+
+# الصفحة 3: الإحصائيات
+elif choice == "📊 الإحصائيات":
+    st.markdown("<div class='main-header'><h2>📊 تقرير الإحصائيات</h2></div>", unsafe_allow_html=True)
+    all_current = []
+    for r in ALL_ROOM_NAMES: all_current.extend(st.session_state.db["rooms"][r]["residents"])
+    
+    m = len([x for x in all_current if x['gender'] == "ذكر"])
+    f = len([x for x in all_current if x['gender'] == "أنثى"])
+    today_rev = sum(e.get("paid", 0) for e in st.session_state.db["archive"] if e["exit"].startswith(date.today().strftime("%Y-%m-%d")))
+
+    st.markdown(f"""
+    <table class="stats-table">
+        <tr style="background:#f2f2f2"><td>المؤشر</td><td>القيمة</td></tr>
+        <tr><td>المقيمين حالياً</td><td><b>{len(all_current)}</b></td></tr>
+        <tr><td>ذكور / إناث</td><td>{m} ذكور | {f} إناث</td></tr>
+        <tr><td>مداخيل اليوم</td><td><span style="color:green">{today_rev} دج</span></td></tr>
+    </table>
+    """, unsafe_allow_html=True)
 
 # الصفحة 4: الأرشيف
 elif choice == "📂 الأرشيف":
-    st.markdown("<div class='main-header'><h2>📂 سجل البيانات التاريخي</h2></div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-header'><h2>📂 سجل الأرشيف والطباعة</h2></div>", unsafe_allow_html=True)
     if st.session_state.db["archive"]:
-        df_arch = pd.DataFrame(st.session_state.db["archive"]).rename(columns={
-            "name": "الاسم", "gender": "الجنس", "nation": "الجنسية", "kids": "الأطفال",
-            "entry": "الدخول", "exit": "الخروج", "paid_val": "المبلغ", "room": "الغرفة"
-        })
-        st.dataframe(df_arch, use_container_width=True)
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_arch.to_excel(writer, index=False)
-        st.download_button("📥 تحميل التقرير (Excel)", output.getvalue(), f"تقرير_{date.today()}.xlsx")
+        df = pd.DataFrame(st.session_state.db["archive"])
+        st.dataframe(df, use_container_width=True)
+        csv = df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 تحميل الأرشيف الشامل (CSV)", csv, "archive.csv", "text/csv")
 
-# التوقيع الثابت
-st.markdown("<div class='footer'>إدارة بيت الشباب محمدي يوسف - مطور من طرف ®ridha_merzoug®</div>", unsafe_allow_html=True)
-if st.sidebar.button("تسجيل الخروج"):
-    st.session_state.auth = False; st.rerun()
+st.markdown("<div class='footer'>إدارة بيت الشباب محمدي يوسف - ®ridha_merzoug®</div>", unsafe_allow_html=True)
