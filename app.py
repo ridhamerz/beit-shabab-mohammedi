@@ -1,139 +1,115 @@
-# حجوزات بيت الشباب - نسخة بسيطة 2025
-# كل شخص = سرير واحد فقط
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+from datetime import datetime
 
-from datetime import datetime, timedelta
-import os
+# إعدادات الصفحة والواجهة
+st.set_page_config(page_title="نظام إدارة الحجوزات", layout="wide")
 
-# ------------------- البيانات الأساسية -------------------
-rooms = {
-    "ذكور": {
-        "غرفة 01": {"total": 6, "booked": 0, "reservations": []},
-        "غرفة 02": {"total": 6, "booked": 0, "reservations": []},
-        "غرفة 03": {"total": 6, "booked": 0, "reservations": []},
-        "غرفة 04": {"total": 6, "booked": 0, "reservations": []},
-        "غرفة 05": {"total": 6, "booked": 0, "reservations": []},
-        "مرقد ذكور 1": {"total": 3, "booked": 0, "reservations": []},
-        "مرقد ذكور 2": {"total": 4, "booked": 0, "reservations": []},
-    },
-    "عائلي/إناث": {
-        "غرفة 06": {"total": 3, "booked": 0, "reservations": []},
-        "غرفة 07": {"total": 6, "booked": 0, "reservations": []},
-        "غرفة 08": {"total": 6, "booked": 0, "reservations": []},
-        "غرفة 09": {"total": 6, "booked": 0, "reservations": []},
-        "مرقد إناث 1": {"total": 1, "booked": 0, "reservations": []},   # افتراضي 1 → صحح إذا لازم
-        "مرقد إناث 2": {"total": 40, "booked": 0, "reservations": []},
+# تنسيق CSS لدعم اللغة العربية والواجهة الجميلة
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+    html, body, [class*="css"] {
+        font-family: 'Cairo', sans-serif;
+        direction: RTL;
+        text-align: right;
     }
-}
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_html=True)
 
-reservations = []  # قائمة عامة لكل الحجوزات
+# تهيئة مخزن البيانات (في بيئة حقيقية يفضل ربطه بـ Google Sheets أو SQL)
+if 'bookings' not in st.session_state:
+    st.session_state.bookings = pd.DataFrame(columns=[
+        'الاسم', 'اللقب', 'تاريخ الازدياد', 'مكان الازدياد', 'العنوان', 
+        'رقم الهوية', 'المهنة', 'الجنسية', 'الفئة', 'الجنس', 
+        'عدد الليالي', 'المبلغ المدفوع', 'تاريخ الحجز', 'ملاحظات'
+    ])
 
-# ------------------- الدوال المساعدة -------------------
-def calculate_free_beds():
-    for gender in rooms:
-        for room_name, data in rooms[gender].items():
-            data["booked"] = len(data["reservations"])
-            data["free"] = data["total"] - data["booked"]
+# العنوان الرئيسي
+st.title("🏨 نظام إدارة الحجوزات المتطور")
+st.markdown("---")
 
-def show_available_rooms():
-    print("\n" + "="*60)
-    print("          الغرف المتوفرة حالياً          ")
-    print("="*60)
-    for gender, room_dict in rooms.items():
-        print(f"\n{ gender.upper() }")
-        print("-"*50)
-        print(f"{'الغرفة':<18} {'إجمالي الأسرة':<15} {'محجوز':<10} {'فارغ':<10}")
-        print("-"*50)
-        for room_name, data in room_dict.items():
-            print(f"{room_name:<18} {data['total']:<15} {data['booked']:<10} {data['free']:<10}")
-    print("="*60 + "\n")
+# تقسيم الشاشة: نموذج الإدخال والإحصائيات
+col1, col2 = st.columns([1, 2])
 
-def add_reservation():
-    nom = input("الإسم: ").strip()
-    prenom = input("اللقب: ").strip()
-    gender = input("ذكر أم أنثى/عائلي؟ (ذكر / انثى): ").strip().lower()
+with col1:
+    st.subheader("📝 إدخال بيانات النزيل")
+    with st.form("booking_form", clear_on_submit=True):
+        name = st.text_input("الاسم")
+        last_name = st.text_input("اللقب")
+        dob = st.date_input("تاريخ الازدياد", min_value=datetime(1940, 1, 1))
+        pob = st.text_input("مكان الازدياد")
+        address = st.text_area("العنوان الشخصي")
+        id_card = st.text_input("رقم بطاقة التعريف")
+        job = st.text_input("المهنة")
+        nationality = st.selectbox("الجنسية", ["جزائرية", "أخرى"])
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            category = st.selectbox("الفئة", ["بالغ", "طفل", "مقيم مجاني"])
+            gender = st.selectbox("الجنس", ["ذكر", "أنثى"])
+        with c2:
+            nights = st.number_input("عدد الليالي", min_value=1, step=1)
+            price = st.number_input("المبلغ الإجمالي (دج)", min_value=0, step=100)
+        
+        notes = st.text_area("ملاحظات")
+        
+        submit = st.form_submit_button("حفظ الحجز")
+        
+        if submit:
+            new_data = {
+                'الاسم': name, 'اللقب': last_name, 'تاريخ الازدياد': dob,
+                'مكان الازدياد': pob, 'العنوان': address, 'رقم الهوية': id_card,
+                'المهنة': job, 'الجنسية': nationality, 'الفئة': category,
+                'الجنس': gender, 'عدد الليالي': nights, 'المبلغ المدفوع': price,
+                'تاريخ الحجز': datetime.now().date(), 'ملاحظات': notes
+            }
+            st.session_state.bookings = pd.concat([st.session_state.bookings, pd.DataFrame([new_data])], ignore_index=True)
+            st.success("تم تسجيل الحجز بنجاح!")
+
+with col2:
+    st.subheader("📊 لوحة الإحصائيات (الشهري واليومي)")
+    df = st.session_state.bookings
     
-    if gender.startswith("ذ"):
-        section = "ذكور"
+    if not df.empty:
+        # حسابات سريعة
+        today = datetime.now().date()
+        daily_df = df[df['تاريخ الحجز'] == today]
+        
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("نزلاء اليوم", len(daily_df))
+        m2.metric("مدخول اليوم", f"{daily_df['المبلغ المدفوع'].sum()} دج")
+        m3.metric("نزلاء الشهر", len(df))
+        m4.metric("مدخول الشهر", f"{df['المبلغ المدفوع'].sum()} دج")
+
+        # رسومات بيانية
+        st.markdown("---")
+        g1, g2 = st.columns(2)
+        
+        with g1:
+            # توزيع الجنس
+            fig_gender = px.pie(df, names='الجنس', title='توزيع الجنس (ذكر/أنثى)')
+            st.plotly_chart(fig_gender, use_container_width=True)
+            
+        with g2:
+            # توزيع الفئات (أطفال، أجانب، مجاني)
+            fig_cat = px.bar(df, x='الفئة', color='الجنسية', title='توزيع الفئات والجنسيات')
+            st.plotly_chart(fig_cat, use_container_width=True)
     else:
-        section = "عائلي/إناث"
-    
-    show_available_rooms()
-    room_choice = input(f"إختر اسم الغرفة اللي تبغي تحجز فيها (من {section}): ").strip()
-    
-    if section not in rooms or room_choice not in rooms[section]:
-        print("الغرفة غير موجودة أو في جناح خاطئ!")
-        return
-    
-    room = rooms[section][room_choice]
-    if room["free"] <= 0:
-        print("ما عندها أسرّة فارغة في هذي الغرفة!")
-        return
-    
-    date_str = input("تاريخ بداية الحجز (مثال: 2025-03-15): ")
-    days = int(input("عدد الأيام: "))
-    
-    try:
-        start = datetime.strptime(date_str, "%Y-%m-%d")
-        end = start + timedelta(days=days-1)
-    except:
-        print("تاريخ غير صحيح!")
-        return
-    
-    # تسجيل الحجز
-    reservation = {
-        "nom": nom,
-        "prenom": prenom,
-        "room": room_choice,
-        "section": section,
-        "start": start,
-        "end": end,
-        "date_added": datetime.now()
-    }
-    
-    room["reservations"].append(reservation)
-    reservations.append(reservation)
-    print(f"\nتم الحجز بنجاح لـ {nom} {prenom} في {room_choice} من {start.date()} إلى {end.date()}\n")
+        st.info("لا توجد بيانات لعرض الإحصائيات حالياً.")
 
-def show_all_reservations():
-    if not reservations:
-        print("ما عندكش حجوزات بعد.")
-        return
-    
-    print("\n" + "="*80)
-    print("              جميع الحجوزات              ")
-    print("="*80)
-    print(f"{'الإسم':<15} {'اللقب':<15} {'الغرفة':<18} {'بداية':<12} {'نهاية':<12}")
-    print("-"*80)
-    for r in sorted(reservations, key=lambda x: x["start"]):
-        print(f"{r['nom']:<15} {r['prenom']:<15} {r['room']:<18} {r['start'].date():<12} {r['end'].date():<12}")
-    print("="*80 + "\n")
+# عرض الجدول الرئيسي
+st.markdown("---")
+st.subheader("📋 سجل الحجوزات الكامل")
+st.dataframe(st.session_state.bookings, use_container_width=True)
 
-# ------------------- القائمة الرئيسية -------------------
-def main():
-    while True:
-        os.system('cls' if os.name == 'nt' else 'clear')
-        calculate_free_beds()
-        print("=== نظام حجوزات بيت الشباب ===")
-        print("1. عرض الغرف المتوفرة")
-        print("2. إضافة حجز جديد")
-        print("3. عرض جميع الحجوزات")
-        print("4. خروج")
+# إضافة تذييل باسمك كما تفضل دائماً
+st.markdown(f"""
+    <div style='text-align: center; color: grey; padding: 20px;'>
+        المطور: ridha_merzoug | نظام إدارة بيت الشباب
+    </div>
+    """, unsafe_allow_html=True)
         
-        choice = input("\nإختر (1-4): ").strip()
-        
-        if choice == "1":
-            show_available_rooms()
-        elif choice == "2":
-            add_reservation()
-        elif choice == "3":
-            show_all_reservations()
-        elif choice == "4":
-            print("شكرا على الاستخدام!")
-            break
-        else:
-            print("خيار غير صحيح!")
-        
-        input("\nإضغط Enter للمتابعة...")
-
-if __name__ == "__main__":
-    main()
