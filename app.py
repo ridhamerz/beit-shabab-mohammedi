@@ -1,161 +1,134 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import time
+import io
 
-# 1. إعدادات الصفحة والتنسيق الجمالي
-st.set_page_config(page_title="نظام استقبال بيت الشباب", layout="wide")
+# إعداد الصفحة والتنسيق الجمالي
+st.set_page_config(page_title="بيت شباب محمدي يوسف قالمة", layout="wide")
 
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap');
-    * { font-family: 'Noto Sans Arabic', sans-serif; direction: RTL; }
-    .alarm-banner {
-        background-color: #ff4b4b; color: white; padding: 15px;
-        border-radius: 10px; border-left: 10px solid #8B0000;
-        animation: blinker 1.5s linear infinite; font-weight: bold;
-        text-align: center; margin-bottom: 20px;
-    }
-    @keyframes blinker { 50% { opacity: 0.6; } }
-    .room-box {
-        display: inline-block; width: 70px; height: 70px; margin: 5px;
-        border-radius: 12px; text-align: center; line-height: 70px;
-        color: white; font-weight: bold; font-size: 1.1em;
-    }
-    .free { background-color: #28a745; box-shadow: 0 4px #1e7e34; }
-    .occupied { background-color: #dc3545; box-shadow: 0 4px #a71d2a; }
-    .developer-footer {
-        background: linear-gradient(45deg, #1e3c72, #2a5298);
-        padding: 20px; border-radius: 15px; color: white;
-        text-align: center; font-weight: bold; margin-top: 50px;
-    }
-    .dev-name { color: #00d4ff; font-size: 1.2em; text-shadow: 1px 1px 2px black; }
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+    * { font-family: 'Cairo', sans-serif; direction: RTL; }
+    .main-title { background: linear-gradient(90deg, #1e3c72, #2a5298); color: white; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; font-size: 1.3rem; font-weight: bold; }
+    .bed-box { display: inline-block; width: 45px; height: 35px; margin: 3px; border-radius: 5px; text-align: center; line-height: 35px; color: white; font-size: 0.8rem; font-weight: bold; }
+    .free { background-color: #28a745; border-bottom: 3px solid #1e7e34; }
+    .occupied { background-color: #dc3545; border-bottom: 3px solid #a71d2a; }
+    .wing-header { background-color: #e9ecef; padding: 8px; border-radius: 8px; margin-top: 15px; border-right: 5px solid #1e3c72; font-weight: bold; }
+    .developer-footer { background: #1e3c72; color: #ffffff; padding: 6px; border-radius: 10px; text-align: center; margin-top: 30px; font-size: 0.75rem; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. إدارة الحالة الأمنية والبيانات
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-    st.session_state.user_role = None
-if 'login_attempts' not in st.session_state:
-    st.session_state.login_attempts = 0
-if 'lock_until' not in st.session_state:
-    st.session_state.lock_until = None
-if 'passwords' not in st.session_state:
-    st.session_state.passwords = {"مدير": "1234", "عون استقبال": "5678"}
+st.markdown('<div class="main-title">®® برنامج بيت الشباب محمدي يوسف قالمة®®</div>', unsafe_allow_html=True)
+
+# هيكلة الغرف والأسرة
+wings = {
+    "جناح ذكور": {
+        "غرفة 01": 6, "غرفة 02": 6, "غرفة 03": 6, "غرفة 04": 6, "غرفة 05": 6,
+        "مرقد ذكور 01": 3, "مرقد ذكور 02": 4
+    },
+    "جناح إناث": {
+        "غرفة 06": 2, "غرفة 07": 6, "غرفة 08": 6, "غرفة 09": 6,
+        "مرقد إناث 01": 3, "مرقد إناث 02": 4
+    }
+}
+
+# إدارة البيانات
 if 'db' not in st.session_state:
     st.session_state.db = pd.DataFrame(columns=[
-        'الاسم', 'اللقب', 'رقم الغرفة', 'التصنيف', 'الجنسية', 'الليالي', 'المبلغ', 'تاريخ الخروج'
+        'الاسم واللقب', 'تاريخ ومكان الازدياد', 'العنوان الشخصي', 
+        'رقم ونوع بطاقة التعريف', 'المهنة', 'عدد الليالي', 'الجناح', 'الغرفة', 'السرير', 'تاريخ الخروج'
     ])
 
-# 3. نظام الحماية وقفل البرنامج
-if st.session_state.lock_until and datetime.now() < st.session_state.lock_until:
-    remaining = int((st.session_state.lock_until - datetime.now()).total_seconds())
-    st.error(f"⚠️ البرنامج مغلق بسبب محاولات خاطئة. انتظر {remaining} ثانية.")
-    st.stop()
+tabs = st.tabs(["📋 السجل والطباعة", "➕ حجز جديد", "📊 عدد الغرف", "⚙️ الإعدادات"])
 
-# 4. واجهة تسجيل الدخول
-if not st.session_state.authenticated:
-    st.title("🔐 تسجيل الدخول - نظام محمدي يوسف")
-    col_login, _ = st.columns([1, 1])
-    with col_login:
-        role = st.selectbox("الصفة", ["مدير", "عون استقبال"])
-        pwd = st.text_input("كلمة السر", type="password")
-        if st.button("دخول"):
-            if pwd == st.session_state.passwords[role]:
-                st.session_state.authenticated, st.session_state.user_role = True, role
-                st.session_state.login_attempts = 0
-                st.rerun()
-            else:
-                st.session_state.login_attempts += 1
-                if st.session_state.login_attempts >= 3:
-                    st.session_state.lock_until = datetime.now() + timedelta(minutes=1)
-                    st.rerun()
-                else: st.warning(f"كلمة سر خاطئة! المتبقي: {3 - st.session_state.login_attempts}")
-    st.stop()
-
-# 5. التنبيه الصلب (Alarm)
-today = datetime.now().date()
-overdue_list = st.session_state.db[st.session_state.db['تاريخ الخروج'] <= today]
-if not overdue_list.empty:
-    st.markdown(f'<div class="alarm-banner">🚨 تنبيه: يوجد {len(overdue_list)} نزلاء انتهت مدة إقامتهم ويجب الإخلاء فوراً!</div>', unsafe_allow_html=True)
-
-# 6. واجهة البرنامج الرئيسية
-st.sidebar.title(f"👤 {st.session_state.user_role}")
-if st.sidebar.button("خروج"):
-    st.session_state.authenticated = False
-    st.rerun()
-
-tabs = st.tabs(["➕ تسجيل جديد", "📋 قائمة النزلاء", "🗺️ خريطة الغرف", "⚙️ الإعدادات"])
-
-# التبويب الأول: التسجيل
+# --- 1. تبويب السجل والطباعة ---
 with tabs[0]:
-    st.subheader("📝 إدخال بيانات النزيل")
-    with st.container():
-        c1, c2 = st.columns(2)
-        with c1:
-            name = st.text_input("الاسم", key="n")
-            last_name = st.text_input("اللقب", key="ln")
-            dob = st.date_input("تاريخ الميلاد", value=datetime(2000,1,1))
-            room = st.selectbox("رقم الغرفة", [f"غرفة {i}" for i in range(1, 21)])
-        with c2:
-            nation = st.selectbox("الجنسية", ["جزائرية", "أخرى"])
-            nights = st.number_input("عدد الليالي", min_value=1, value=1)
-            is_free = st.checkbox("إقامة مجانية")
-        
-        if st.button("✅ تأكيد الحجز وحفظ البيانات", use_container_width=True):
-            if name and last_name:
-                age = (datetime.now().date() - dob).days // 365
-                category = "طفل" if age < 18 else ("أجنبي" if nation != "جزائرية" else "بالغ")
-                price = 0 if is_free else (nights * 400)
-                exit_d = datetime.now().date() + timedelta(days=nights)
-                
-                new_row = {
-                    'الاسم': name, 'اللقب': last_name, 'رقم الغرفة': room,
-                    'التصنيف': category, 'الجنسية': nation, 'الليالي': nights,
-                    'المبلغ': price, 'تاريخ الخروج': exit_d
-                }
-                st.session_state.db = pd.concat([st.session_state.db, pd.DataFrame([new_row])], ignore_index=True)
-                st.success(f"تم تسجيل {name} بنجاح. المبلغ: {price} دج")
-            else: st.error("يرجى ملء الاسم واللقب")
-
-# التبويب الثاني: السجل مع الحذف
-with tabs[1]:
-    st.subheader("📋 سجل الحجوزات الحالي")
+    st.subheader("📋 قائمة النزلاء الحالية")
     if not st.session_state.db.empty:
         for i, row in st.session_state.db.iterrows():
-            col_txt, col_btn = st.columns([5, 1])
-            col_txt.write(f"**{row['الاسم']} {row['اللقب']}** - {row['رقم الغرفة']} (المغادرة: {row['تاريخ الخروج']})")
-            if st.session_state.user_role == "مدير":
-                if col_btn.button("🗑️ حذف", key=f"del_{i}"):
-                    st.session_state.db = st.session_state.db.drop(i)
-                    st.rerun()
-    else: st.info("السجل فارغ حالياً.")
+            with st.expander(f"👤 {row['الاسم واللقب']} - {row['الغرفة']} ({row['السرير']})"):
+                col_info, col_print = st.columns([3, 1])
+                with col_info:
+                    st.write(f"**العنوان:** {row['العنوان الشخصي']}")
+                    st.write(f"**البطاقة:** {row['رقم ونوع بطاقة التعريف']}")
+                with col_print:
+                    # ميزة الطباعة (محاكاة توليد نص الورقة للطباعة السريعة)
+                    report_text = f"""
+                    مؤسسة بيت الشباب محمدي يوسف - قالمة
+                    ----------------------------------
+                    ورقة مبيت نزيل
+                    الاسم واللقب: {row['الاسم واللقب']}
+                    تاريخ الازدياد: {row['تاريخ ومكان الازدياد']}
+                    العنوان: {row['العنوان الشخصي']}
+                    رقم البطاقة: {row['رقم ونوع بطاقة التعريف']}
+                    المهنة: {row['المهنة']}
+                    الجناح: {row['الجناح']} | الغرفة: {row['الغرفة']} | السرير: {row['السرير']}
+                    تاريخ الخروج: {row['تاريخ الخروج']}
+                    ----------------------------------
+                    توقيع المستلم: ...........
+                    """
+                    st.download_button(f"📥 تحميل ورقة المبيت #{i+1}", report_text, file_name=f"guest_{i}.txt")
+                    if st.button("🗑️ حذف الحجز", key=f"del_{i}"):
+                        st.session_state.db = st.session_state.db.drop(i)
+                        st.rerun()
+    else:
+        st.info("لا يوجد نزلاء حالياً.")
 
-# التبويب الثالث: الخريطة
+# --- 2. تبويب حجز جديد ---
+with tabs[1]:
+    st.markdown("#### 📝 إدخال بيانات ورقة المبيت")
+    with st.form("pro_form", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            f_name = st.text_input("الاسم واللقب")
+            b_info = st.text_input("تاريخ ومكان الازدياد")
+            addr = st.text_input("العنوان الشخصي الكامل")
+            id_val = st.text_input("رقم ونوع بطاقة التعريف (ب.ت.و / جواز سفر)")
+        with c2:
+            job_val = st.text_input("المهنة")
+            n_nights = st.number_input("عدد الليالي", min_value=1, value=1)
+            w_choice = st.selectbox("الجناح", list(wings.keys()))
+            r_choice = st.selectbox("الغرفة", list(wings[w_choice].keys()))
+            b_choice = st.selectbox("السرير", [f"سرير {i+1}" for i in range(wings[w_choice][r_choice])])
+
+        if st.form_submit_button("💾 حفظ الحجز وتجهيز الورقة"):
+            if f_name and id_val:
+                new_entry = {
+                    'الاسم واللقب': f_name, 'تاريخ ومكان الازدياد': b_info,
+                    'العنوان الشخصي': addr, 'رقم ونوع بطاقة التعريف': id_val,
+                    'المهنة': job_val, 'عدد الليالي': n_nights, 'الجناح': w_choice,
+                    'الغرفة': r_choice, 'السرير': b_choice,
+                    'تاريخ الخروج': datetime.now().date() + timedelta(days=n_nights)
+                }
+                st.session_state.db = pd.concat([st.session_state.db, pd.DataFrame([new_entry])], ignore_index=True)
+                st.success("تم الحفظ! يمكنك الآن التوجه لتبويب السجل لطباعة الورقة.")
+            else:
+                st.error("الرجاء ملء الاسم ورقم الهوية على الأقل.")
+
+# --- 3. تبويب عدد الغرف (تعبئة تلقائية) ---
 with tabs[2]:
-    st.subheader("🗺️ الحالة البصرية للغرف")
-    occ_rooms = st.session_state.db['رقم الغرفة'].values
-    cols = st.columns(5)
-    for i in range(1, 21):
-        r_n = f"غرفة {i}"
-        cls = "occupied" if r_n in occ_rooms else "free"
-        cols[(i-1)%5].markdown(f'<div class="room-box {cls}">{i}</div>', unsafe_allow_html=True)
+    st.markdown("#### 📊 حالة الأجنحة والأسرة (محدثة تلقائياً)")
+    for wing, rooms in wings.items():
+        st.markdown(f'<div class="wing-header">{wing}</div>', unsafe_allow_html=True)
+        for room, bed_count in rooms.items():
+            cols = st.columns([1, 5])
+            cols[0].write(f"**{room}**")
+            beds_html = ""
+            for b in range(1, bed_count + 1):
+                b_name = f"سرير {b}"
+                is_occupied = not st.session_state.db[
+                    (st.session_state.db['الجناح'] == wing) & 
+                    (st.session_state.db['الغرفة'] == room) & 
+                    (st.session_state.db['السرير'] == b_name)
+                ].empty
+                st_class = "occupied" if is_occupied else "free"
+                beds_html += f'<div class="bed-box {st_class}">{b}</div>'
+            cols[1].markdown(beds_html, unsafe_allow_html=True)
 
-# التبويب الرابع: الإعدادات
-with tabs[3]:
-    if st.session_state.user_role == "مدير":
-        st.subheader("⚙️ تغيير كلمات السر")
-        target = st.selectbox("تغيير لـ", ["مدير", "عون استقبال"])
-        new_p = st.text_input("كلمة السر الجديدة", type="password")
-        if st.button("تحديث"):
-            st.session_state.passwords[target] = new_p
-            st.success("تم التحديث!")
-    else: st.info("الإعدادات متاحة للمدير فقط.")
-
-# تذييل المطور
+# --- تذييل المطور (أنيق وصغير) ---
 st.markdown(f"""
     <div class="developer-footer">
-        Developer <span class="dev-name">®ridha_merzoug®</span> [رضا مرزوق]
+        Developer <span style="color:#00d4ff;">®ridha_merzoug®</span> [رضا مرزوق]
     </div>
     """, unsafe_allow_html=True)
