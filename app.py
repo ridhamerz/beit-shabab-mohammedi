@@ -3,113 +3,91 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 
-# إعدادات الصفحة والواجهة
-st.set_page_config(page_title="نظام إدارة الحجوزات", layout="wide")
+# إعداد الصفحة لتكون مريحة للعين
+st.set_page_config(page_title="نظام استقبال بيت الشباب", layout="centered")
 
-# تنسيق CSS لدعم اللغة العربية والواجهة الجميلة
+# تنسيق CSS احترافي لترتيب الواجهة
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-    html, body, [class*="css"] {
-        font-family: 'Cairo', sans-serif;
-        direction: RTL;
-        text-align: right;
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap');
+    * { font-family: 'Noto Sans Arabic', sans-serif; direction: RTL; }
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; justify-content: center; }
+    .stTabs [data-baseweb="tab"] { 
+        background-color: #f0f2f6; border-radius: 10px; padding: 10px 20px; color: #31333F;
     }
-    .main { background-color: #f8f9fa; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .stTabs [aria-selected="true"] { background-color: #007BFF !important; color: white !important; }
+    div[data-testid="metric-container"] {
+        background-color: #ffffff; border: 1px solid #e6e9ef; padding: 15px; border-radius: 15px; text-align: center;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# تهيئة مخزن البيانات (في بيئة حقيقية يفضل ربطه بـ Google Sheets أو SQL)
-if 'bookings' not in st.session_state:
-    st.session_state.bookings = pd.DataFrame(columns=[
-        'الاسم', 'اللقب', 'تاريخ الازدياد', 'مكان الازدياد', 'العنوان', 
-        'رقم الهوية', 'المهنة', 'الجنسية', 'الفئة', 'الجنس', 
-        'عدد الليالي', 'المبلغ المدفوع', 'تاريخ الحجز', 'ملاحظات'
+# تهيئة البيانات
+if 'db' not in st.session_state:
+    st.session_state.db = pd.DataFrame(columns=[
+        'الاسم', 'اللقب', 'الجنس', 'الفئة', 'الجنسية', 'الليالي', 'المبلغ', 'التاريخ'
     ])
 
-# العنوان الرئيسي
-st.title("🏨 نظام إدارة الحجوزات المتطور")
-st.markdown("---")
+st.title("🏨 إدارة حجوزات بيت الشباب")
+st.write("---")
 
-# تقسيم الشاشة: نموذج الإدخال والإحصائيات
-col1, col2 = st.columns([1, 2])
+# تقسيم البرنامج إلى أقسام واضحة (Tabs)
+tab1, tab2, tab3 = st.tabs(["➕ تسجيل جديد", "📋 سجل النزلاء", "📊 الإحصائيات والمالية"])
 
-with col1:
-    st.subheader("📝 إدخال بيانات النزيل")
-    with st.form("booking_form", clear_on_submit=True):
-        name = st.text_input("الاسم")
-        last_name = st.text_input("اللقب")
-        dob = st.date_input("تاريخ الازدياد", min_value=datetime(1940, 1, 1))
-        pob = st.text_input("مكان الازدياد")
-        address = st.text_area("العنوان الشخصي")
-        id_card = st.text_input("رقم بطاقة التعريف")
-        job = st.text_input("المهنة")
-        nationality = st.selectbox("الجنسية", ["جزائرية", "أخرى"])
+with tab1:
+    st.subheader("📝 استمارة التسجيل")
+    with st.container():
+        col1, col2 = st.columns(2)
+        with col1:
+            name = st.text_input("الاسم الشخصي")
+            gender = st.radio("الجنس", ["ذكر", "أنثى"], horizontal=True)
+            category = st.selectbox("تصنيف النزيل", ["بالغ", "طفل", "مقيم مجاني"])
+        with col2:
+            last_name = st.text_input("اللقب العائلي")
+            nationality = st.selectbox("الجنسية", ["جزائرية", "أخرى"])
+            price = st.number_input("المبلغ المؤدى (دج)", min_value=0)
         
+        nights = st.slider("عدد الليالي", 1, 30, 1)
+        
+        if st.button("حفظ الحجز الآن", use_container_width=True):
+            new_entry = {
+                'الاسم': name, 'اللقب': last_name, 'الجنس': gender, 
+                'الفئة': category, 'الجنسية': nationality, 
+                'الليالي': nights, 'المبلغ': price, 'التاريخ': datetime.now().date()
+            }
+            st.session_state.db = pd.concat([st.session_state.db, pd.DataFrame([new_entry])], ignore_index=True)
+            st.success("تم الحفظ بنجاح")
+
+with tab2:
+    st.subheader("📂 قائمة النزلاء المسجلين")
+    if not st.session_state.db.empty:
+        # إضافة شريط بحث بسيط فوق الجدول
+        search = st.text_input("🔍 ابحث عن اسم أو لقب...")
+        filtered_df = st.session_state.db[st.session_state.db['الاسم'].str.contains(search) | st.session_state.db['اللقب'].str.contains(search)]
+        st.dataframe(filtered_df, use_container_width=True)
+    else:
+        st.info("السجل فارغ حالياً.")
+
+with tab3:
+    st.subheader("📈 الملخص العام")
+    df = st.session_state.db
+    if not df.empty:
+        # عرض المربعات الإحصائية بشكل أنيق
+        m1, m2, m3 = st.columns(3)
+        m1.metric("إجمالي النزلاء", len(df))
+        m2.metric("إجمالي المداخيل", f"{df['المبلغ'].sum()} دج")
+        m3.metric("المقيمين مجاناً", len(df[df['الفئة'] == "مقيم مجاني"]))
+        
+        st.write("---")
+        # رسومات بيانية بسيطة وغير مزدحمة
         c1, c2 = st.columns(2)
         with c1:
-            category = st.selectbox("الفئة", ["بالغ", "طفل", "مقيم مجاني"])
-            gender = st.selectbox("الجنس", ["ذكر", "أنثى"])
+            fig_g = px.pie(df, names='الجنس', title="نسبة الذكور والإناث", hole=0.4)
+            st.plotly_chart(fig_g, use_container_width=True)
         with c2:
-            nights = st.number_input("عدد الليالي", min_value=1, step=1)
-            price = st.number_input("المبلغ الإجمالي (دج)", min_value=0, step=100)
-        
-        notes = st.text_area("ملاحظات")
-        
-        submit = st.form_submit_button("حفظ الحجز")
-        
-        if submit:
-            new_data = {
-                'الاسم': name, 'اللقب': last_name, 'تاريخ الازدياد': dob,
-                'مكان الازدياد': pob, 'العنوان': address, 'رقم الهوية': id_card,
-                'المهنة': job, 'الجنسية': nationality, 'الفئة': category,
-                'الجنس': gender, 'عدد الليالي': nights, 'المبلغ المدفوع': price,
-                'تاريخ الحجز': datetime.now().date(), 'ملاحظات': notes
-            }
-            st.session_state.bookings = pd.concat([st.session_state.bookings, pd.DataFrame([new_data])], ignore_index=True)
-            st.success("تم تسجيل الحجز بنجاح!")
-
-with col2:
-    st.subheader("📊 لوحة الإحصائيات (الشهري واليومي)")
-    df = st.session_state.bookings
-    
-    if not df.empty:
-        # حسابات سريعة
-        today = datetime.now().date()
-        daily_df = df[df['تاريخ الحجز'] == today]
-        
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("نزلاء اليوم", len(daily_df))
-        m2.metric("مدخول اليوم", f"{daily_df['المبلغ المدفوع'].sum()} دج")
-        m3.metric("نزلاء الشهر", len(df))
-        m4.metric("مدخول الشهر", f"{df['المبلغ المدفوع'].sum()} دج")
-
-        # رسومات بيانية
-        st.markdown("---")
-        g1, g2 = st.columns(2)
-        
-        with g1:
-            # توزيع الجنس
-            fig_gender = px.pie(df, names='الجنس', title='توزيع الجنس (ذكر/أنثى)')
-            st.plotly_chart(fig_gender, use_container_width=True)
-            
-        with g2:
-            # توزيع الفئات (أطفال، أجانب، مجاني)
-            fig_cat = px.bar(df, x='الفئة', color='الجنسية', title='توزيع الفئات والجنسيات')
-            st.plotly_chart(fig_cat, use_container_width=True)
+            fig_n = px.bar(df, x='الفئة', title="توزيع الفئات")
+            st.plotly_chart(fig_n, use_container_width=True)
     else:
-        st.info("لا توجد بيانات لعرض الإحصائيات حالياً.")
+        st.warning("لا توجد بيانات كافية لعرض الإحصائيات.")
 
-# عرض الجدول الرئيسي
-st.markdown("---")
-st.subheader("📋 سجل الحجوزات الكامل")
-st.dataframe(st.session_state.bookings, use_container_width=True)
-
-# إضافة تذييل باسمك كما تفضل دائماً
-st.markdown(f"""
-    <div style='text-align: center; color: grey; padding: 20px;'>
-        المطور: ridha_merzoug | نظام إدارة بيت الشباب
-    </div>
-    """, unsafe_allow_html=True)
-        
+st.markdown("<br><hr><center><small>نظام إدارة بيت الشباب | ridha_merzoug</small></center>", unsafe_allow_html=True)
