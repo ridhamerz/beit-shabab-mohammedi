@@ -1,119 +1,73 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import time
 
-# إعدادات الصفحة
+# 1. إعدادات الصفحة الأساسية
 st.set_page_config(page_title="نظام استقبال بيت الشباب", layout="wide")
 
-# --- إدارة الحالة الأمنية والبيانات ---
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-    st.session_state.user_role = None
-if 'login_attempts' not in st.session_state:
-    st.session_state.login_attempts = 0
-if 'lock_until' not in st.session_state:
-    st.session_state.lock_until = None
-if 'passwords' not in st.session_state:
-    st.session_state.passwords = {"مدير": "1234", "عون استقبال": "5678"}
+# 2. التأكد من وجود قاعدة البيانات في الذاكرة
 if 'db' not in st.session_state:
-    # بيانات تجريبية لاختبار المنبه (يمكنك مسحها لاحقاً)
-    st.session_state.db = pd.DataFrame([
-        {'الاسم': 'نزيل', 'اللقب': 'تجريبي', 'رقم الغرفة': 'غرفة 1', 'تاريخ الخروج': datetime.now().date()}
-    ])
+    st.session_state.db = pd.DataFrame(columns=['الاسم', 'اللقب', 'رقم الغرفة', 'تاريخ الخروج', 'المبلغ'])
 
-# --- نظام الحماية (قفل البرنامج) ---
-def check_lock():
-    if st.session_state.lock_until and datetime.now() < st.session_state.lock_until:
-        remaining = int((st.session_state.lock_until - datetime.now()).total_seconds())
-        st.error(f"⚠️ البرنامج مغلق بسبب محاولات خاطئة. يرجى الانتظار {remaining} ثانية.")
-        st.stop()
-    elif st.session_state.lock_until and datetime.now() >= st.session_state.lock_until:
-        st.session_state.lock_until = None
-        st.session_state.login_attempts = 0
+# 3. واجهة البرنامج الرئيسية
+st.title("🏨 نظام إدارة بيت شباب محمدي يوسف")
 
-# --- واجهة تسجيل الدخول ---
-def login_page():
-    check_lock()
-    st.title("🔐 بوابة الدخول - بيت شباب محمدي يوسف")
+# إنشاء التبويبات بشكل صريح
+tab_reg, tab_view, tab_map = st.tabs(["➕ تسجيل نزيل جديد", "📋 قائمة الحجوزات", "🗺️ خريطة الغرف"])
+
+# --- التبويب الأول: التسجيل (تأكد من وجود الخانات هنا) ---
+with tab_reg:
+    st.subheader("📝 إدخال بيانات النزيل")
     
-    col1, _ = st.columns([1, 1])
-    with col1:
-        role = st.selectbox("اختر الصفة", ["مدير", "عون استقبال"])
-        password = st.text_input("كلمة السر", type="password")
+    # استخدام حاوية (Container) لضمان ظهور العناصر
+    with st.container():
+        col1, col2 = st.columns(2)
         
-        if st.button("تسجيل الدخول"):
-            if password == st.session_state.passwords[role]:
-                st.session_state.authenticated = True
-                st.session_state.user_role = role
-                st.session_state.login_attempts = 0
-                st.rerun()
+        with col1:
+            name = st.text_input("الاسم الشخصي", key="name_input")
+            last_name = st.text_input("اللقب العائلي", key="last_name_input")
+            room = st.selectbox("رقم الغرفة", [f"غرفة {i}" for i in range(1, 21)], key="room_select")
+        
+        with col2:
+            nights = st.number_input("عدد الليالي", min_value=1, value=1, key="nights_input")
+            nation = st.selectbox("الجنسية", ["جزائرية", "أجنبية"], key="nation_select")
+            is_free = st.checkbox("إقامة مجانية", key="free_check")
+
+        # زر الحفظ
+        if st.button("✅ حفظ الحجز في القائمة", use_container_width=True):
+            if name and last_name: # التأكد من ملء البيانات الأساسية
+                price = 0 if is_free else (nights * 400)
+                exit_date = datetime.now().date() + timedelta(days=nights)
+                
+                new_data = {
+                    'الاسم': name, 'اللقب': last_name, 'رقم الغرفة': room,
+                    'تاريخ الخروج': exit_date, 'المبلغ': price
+                }
+                
+                # إضافة البيانات للجلسة
+                st.session_state.db = pd.concat([st.session_state.db, pd.DataFrame([new_data])], ignore_index=True)
+                st.success(f"تم تسجيل {name} بنجاح في {room}")
             else:
-                st.session_state.login_attempts += 1
-                if st.session_state.login_attempts >= 3:
-                    st.session_state.lock_until = datetime.now() + timedelta(minutes=1)
-                    st.error("❌ تجاوزت المحاولات. قفل البرنامج لمدة دقيقة.")
-                    st.rerun()
-                else:
-                    st.warning(f"كلمة سر خاطئة! المتبقي: {3 - st.session_state.login_attempts}")
+                st.error("الرجاء إدخال الاسم واللقب!")
 
-if not st.session_state.authenticated:
-    login_page()
-    st.stop()
-
-# --- تنسيقات التنبيه والمطور ---
-st.markdown("""
-    <style>
-    .alarm-banner {
-        background-color: #ff4b4b; color: white; padding: 15px;
-        border-radius: 10px; border-left: 10px solid #8B0000;
-        animation: blinker 1.5s linear infinite; font-weight: bold;
-        text-align: center; margin-bottom: 20px;
-    }
-    @keyframes blinker { 50% { opacity: 0.6; } }
-    .developer-footer {
-        background: linear-gradient(45deg, #1e3c72, #2a5298);
-        padding: 15px; border-radius: 10px; color: white;
-        text-align: center; font-weight: bold; margin-top: 50px;
-    }
-    .dev-name { color: #00d4ff; font-size: 1.1em; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- نظام المنبه الصلب (يظهر للكل) ---
-today = datetime.now().date()
-overdue = st.session_state.db[st.session_state.db['تاريخ الخروج'] <= today]
-
-if not overdue.empty:
-    st.markdown(f"""
-        <div class="alarm-banner">
-            🚨 تنبيه صلب لـ {st.session_state.user_role}: يوجد {len(overdue)} نزلاء يجب إخلاء غرفهم الآن!
-        </div>
-    """, unsafe_allow_html=True)
-
-# --- واجهة البرنامج ---
-st.sidebar.title(f"👤 {st.session_state.user_role}")
-if st.sidebar.button("خروج"):
-    st.session_state.authenticated = False
-    st.rerun()
-
-tabs = st.tabs(["🏠 الرئيسية", "🗺️ الخريطة", "➕ تسجيل", "📋 السجل", "⚙️ الإعدادات"])
-
-# تبويب الإعدادات (تغيير كلمة السر للمدير فقط)
-with tabs[4]:
-    if st.session_state.user_role == "مدير":
-        st.subheader("⚙️ إعدادات الأمان")
-        target = st.selectbox("تغيير كلمة سر لـ:", ["مدير", "عون استقبال"])
-        new_p = st.text_input("كلمة السر الجديدة", type="password")
-        if st.button("تحديث"):
-            st.session_state.passwords[target] = new_p
-            st.success(f"تم تغيير كلمة سر {target}")
+# --- التبويب الثاني: عرض البيانات ---
+with tab_view:
+    st.subheader("📋 السجل الحالي للنزلاء")
+    if not st.session_state.db.empty:
+        st.table(st.session_state.db) # عرض الجدول بشكل بسيط وواضح
     else:
-        st.info("ℹ️ الإعدادات متاحة للمدير فقط.")
+        st.info("لا يوجد نزلاء مسجلين حالياً. قم بالتسجيل من التبويب الأول.")
 
-# --- تذييل المطور المميز ---
-st.markdown(f"""
-    <div class="developer-footer">
-        Developer <span class="dev-name">®ridha_merzoug®</span> [رضا مرزوق]
-    </div>
-    """, unsafe_allow_html=True)
+# --- التبويب الثالث: الخريطة ---
+with tab_map:
+    st.subheader("🗺️ حالة الغرف")
+    occupied = st.session_state.db['رقم الغرفة'].values
+    cols = st.columns(5)
+    for i in range(1, 21):
+        r_name = f"غرفة {i}"
+        color = "🔴" if r_name in occupied else "🟢"
+        cols[(i-1)%5].info(f"{color} {r_name}")
+
+# تذييل المطور
+st.markdown("---")
+st.markdown("<center>Developer <b>®ridha_merzoug®</b> [رضا مرزوق]</center>", unsafe_allow_html=True)
