@@ -52,7 +52,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────
-#               قاعدة البيانات
+#               قاعدة البيانات (محدثة)
 # ────────────────────────────────────────────────
 DB_FILE = 'youth_hostel.db'
 
@@ -75,7 +75,15 @@ def init_db():
         status TEXT DEFAULT 'مقيم',
         is_minor TEXT DEFAULT 'لا',
         guardian_name TEXT,
-        guardian_permission TEXT
+        guardian_permission TEXT,
+        nationality TEXT,
+        id_type TEXT,
+        phone TEXT,
+        purpose TEXT,
+        purpose_other TEXT,
+        companions_count INTEGER DEFAULT 0,
+        companions_names TEXT,
+        notes TEXT
     )''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS archive (
@@ -93,7 +101,15 @@ def init_db():
         status TEXT,
         is_minor TEXT DEFAULT 'لا',
         guardian_name TEXT,
-        guardian_permission TEXT
+        guardian_permission TEXT,
+        nationality TEXT,
+        id_type TEXT,
+        phone TEXT,
+        purpose TEXT,
+        purpose_other TEXT,
+        companions_count INTEGER DEFAULT 0,
+        companions_names TEXT,
+        notes TEXT
     )''')
     
     conn.commit()
@@ -102,8 +118,16 @@ def init_db():
 init_db()
 
 # ────────────────────────────────────────────────
-#               دوال مساعدة
+#               دوال مساعدة (محسنة)
 # ────────────────────────────────────────────────
+def calculate_age(birth_date):
+    """حساب العمر بدقة"""
+    today = date.today()
+    age = today.year - birth_date.year
+    if (today.month, today.day) < (birth_date.month, birth_date.day):
+        age -= 1
+    return age
+
 def is_bed_occupied(wing, room, bed):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -113,19 +137,37 @@ def is_bed_occupied(wing, room, bed):
     conn.close()
     return result is not None
 
-def add_guest(name, birth_date, birth_place, address, id_card, wing, room, bed, check_in, check_out, guardian_name=None, guardian_permission=None):
-    age = (date.today() - birth_date).days // 365
+def add_guest(name, birth_date, birth_place, address, id_card, wing, room, bed, 
+              check_in, check_out, guardian_name=None, guardian_permission=None,
+              nationality="الجزائر", id_type="بطاقة التعريف الوطنية", phone="",
+              purpose="", purpose_other="", companions_count=0, companions_names="", notes=""):
+    age = calculate_age(birth_date)
     is_minor = 'نعم' if age < 18 else 'لا'
     
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("""
-        INSERT INTO current_guests 
-        (name, birth_date, birth_place, address, id_card, wing, room, bed, check_in, check_out, is_minor, guardian_name, guardian_permission)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (name, str(birth_date), birth_place, address, id_card, wing, room, bed, str(check_in), str(check_out), is_minor, guardian_name, guardian_permission))
-    conn.commit()
-    conn.close()
+    try:
+        c.execute("""
+            INSERT INTO current_guests 
+            (name, birth_date, birth_place, address, id_card, wing, room, bed, 
+             check_in, check_out, is_minor, guardian_name, guardian_permission,
+             nationality, id_type, phone, purpose, purpose_other, 
+             companions_count, companions_names, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (name, str(birth_date), birth_place, address, id_card, wing, room, bed, 
+              str(check_in), str(check_out), is_minor, guardian_name, guardian_permission,
+              nationality, id_type, phone, purpose, purpose_other, 
+              companions_count, companions_names, notes))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        st.error("❌ رقم الوثيقة موجود مسبقاً!")
+        return False
+    except Exception as e:
+        st.error(f"خطأ في التسجيل: {str(e)}")
+        return False
+    finally:
+        conn.close()
 
 # ────────────────────────────────────────────────
 #               الجلسة والأجنحة
@@ -142,7 +184,7 @@ if 'wings' not in st.session_state:
     }
 wings = st.session_state.wings
 
-# تهيئة قيم النموذج في الجلسة
+# تهيئة كل الحقول في الجلسة (شاملة الآن)
 defaults = {
     "name": "",
     "birth_date": date.today() - timedelta(days=365*22),
@@ -302,9 +344,20 @@ with tabs[0]:
                     unsafe_allow_html=True
                 )
 
-            wing = st.selectbox("الجناح", list(wings.keys()), index=list(wings.keys()).index(st.session_state["form_wing"]) if st.session_state["form_wing"] in wings else 0, key="wing_select")
-            room = st.selectbox("الغرفة", list(wings[wing].keys()), index=list(wings[wing].keys()).index(st.session_state["form_room"]) if st.session_state["form_room"] in wings[wing] else 0, key="room_select")
-            bed = st.selectbox("رقم السرير", [f"سرير {i+1}" for i in range(wings[wing][room])], key="bed_select")
+            # اختيار الجناح والغرفة والسرير
+            wing = st.selectbox("الجناح", list(wings.keys()), 
+                               index=list(wings.keys()).index(st.session_state["form_wing"]) 
+                               if st.session_state["form_wing"] in wings else 0, 
+                               key="wing_select")
+            room = st.selectbox("الغرفة", list(wings[wing].keys()), 
+                               index=list(wings[wing].keys()).index(st.session_state["form_room"]) 
+                               if st.session_state["form_room"] in wings[wing] else 0, 
+                               key="room_select")
+            bed_options = [f"سرير {i+1}" for i in range(wings[wing][room])]
+            bed = st.selectbox("رقم السرير", bed_options, 
+                              index=bed_options.index(st.session_state["form_bed"]) 
+                              if st.session_state["form_bed"] in bed_options else 0, 
+                              key="bed_select")
 
             # قسم الحقول الثانوية (مطوي)
             with st.expander("ℹ️ معلومات إضافية وطلبات خاصة", expanded=False):
@@ -320,10 +373,13 @@ with tabs[0]:
                 ]
                 purpose_index = purposes.index(st.session_state["form_purpose"]) if st.session_state["form_purpose"] in purposes else 0
                 purpose = st.selectbox("", purposes, index=purpose_index, key="purpose_select")
+                purpose_other = ""
                 if purpose == "أخرى":
                     purpose_other = st.text_input("وضّح السبب الآخر", value=st.session_state["form_purpose_other"], key="purpose_other_input")
 
-                companions_count = st.number_input("عدد الأشخاص المرافقين", min_value=0, max_value=8, value=st.session_state["form_companions_count"], key="companions_count")
+                companions_count = st.number_input("عدد الأشخاص المرافقين", min_value=0, max_value=8, 
+                                                 value=st.session_state["form_companions_count"], key="companions_count")
+                companions_names = ""
                 if companions_count > 0:
                     companions_names = st.text_area(
                         f"أسماء المرافقين ({companions_count})",
@@ -338,7 +394,7 @@ with tabs[0]:
                                     key="notes_area")
 
             # منطقة القاصرين
-            age = (date.today() - birth_date).days // 365
+            age = calculate_age(birth_date)
             guardian_name = guardian_permission = ""
             if age < 18:
                 st.markdown(
@@ -371,64 +427,73 @@ with tabs[0]:
             if submitted:
                 # جمع القيم الحالية
                 current = {
-                    "name": name,
+                    "name": name.strip(),
                     "birth_date": birth_date,
-                    "birth_place": birth_place,
-                    "address": address,
+                    "birth_place": birth_place.strip(),
+                    "address": address.strip(),
                     "nationality": nationality,
                     "id_type": id_type,
-                    "id_number": id_number,
-                    "phone": phone,
+                    "id_number": id_number.strip(),
+                    "phone": phone.strip(),
                     "nights": nights,
                     "check_in": check_in,
                     "wing": wing,
                     "room": room,
                     "bed": bed,
                     "purpose": purpose,
-                    "purpose_other": purpose_other if 'purpose_other' in locals() else "",
+                    "purpose_other": purpose_other,
                     "companions_count": companions_count,
-                    "companions_names": companions_names if 'companions_names' in locals() else "",
+                    "companions_names": companions_names,
                     "notes": notes,
-                    "guardian_name": guardian_name,
+                    "guardian_name": guardian_name.strip() if guardian_name else "",
                     "guardian_permission": guardian_permission
                 }
 
-                # التحقق (رقم الهاتف اختياري)
+                # التحقق
                 errors = []
-                if not current["name"].strip(): errors.append("الاسم واللقب مطلوب")
-                if not current["id_number"].strip(): errors.append("رقم الوثيقة مطلوب")
+                if not current["name"]: errors.append("الاسم واللقب مطلوب")
+                if not current["id_number"]: errors.append("رقم الوثيقة مطلوب")
+
+                # التحقق من السرير
+                if is_bed_occupied(current["wing"], current["room"], current["bed"]):
+                    errors.append("❌ السرير محجوز حالياً! اختر سرير آخر")
 
                 if errors:
                     st.session_state.form_error = " | ".join(errors)
-                    # حفظ القيم الحالية لإعادة العرض
+                    # حفظ القيم لإعادة العرض
                     for k, v in current.items():
                         st.session_state[f"form_{k}"] = v
                     st.rerun()
                 else:
                     st.session_state.form_error = ""
-                    # حفظ في قاعدة البيانات
-                    add_guest(current["name"], current["birth_date"], current["birth_place"], current["address"],
-                              current["id_number"], current["wing"], current["room"], current["bed"],
-                              current["check_in"], current["check_in"] + timedelta(days=current["nights"]),
-                              current["guardian_name"], current["guardian_permission"])
-
-                    # تفعيل حالة النجاح
-                    st.session_state.booking_success = True
-                    st.rerun()
+                    success = add_guest(
+                        current["name"], current["birth_date"], current["birth_place"], current["address"],
+                        current["id_number"], current["wing"], current["room"], current["bed"],
+                        current["check_in"], current["check_in"] + timedelta(days=current["nights"]),
+                        current["guardian_name"], current["guardian_permission"],
+                        current["nationality"], current["id_type"], current["phone"],
+                        current["purpose"], current["purpose_other"],
+                        current["companions_count"], current["companions_names"], current["notes"]
+                    )
+                    
+                    if success:
+                        st.session_state.booking_success = True
+                        st.rerun()
 
 # ────────────────────────────────────────────────
-#               تبويب حالة الغرف (مثال بسيط)
+#               تبويب حالة الغرف (محسن)
 # ────────────────────────────────────────────────
 with tabs[1]:
     st.subheader("📊 حالة الأجنحة والأسرة")
     for wing_name, rooms in wings.items():
         st.markdown(f"**{wing_name}**")
         for room_name, bed_count in rooms.items():
-            st.write(f"  {room_name}")
+            st.write(f"**{room_name}**")
             cols = st.columns(5)
             for i in range(bed_count):
                 col = cols[i % 5]
-                status = "occupied" if is_bed_occupied(wing_name, room_name, f"سرير {i+1}") else "free"
+                bed_num = f"سرير {i+1}"
+                status = "occupied" if is_bed_occupied(wing_name, room_name, bed_num) else "free"
                 col.markdown(f'<div class="bed-box {status}">{i+1}</div>', unsafe_allow_html=True)
 
 # تذييل
