@@ -56,7 +56,8 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS current_guests (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
-                    birth TEXT,
+                    birth_date TEXT,
+                    birth_place TEXT,
                     address TEXT,
                     id_card TEXT UNIQUE,
                     wing TEXT,
@@ -70,7 +71,8 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS archive (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT,
-                    birth TEXT,
+                    birth_date TEXT,
+                    birth_place TEXT,
                     address TEXT,
                     id_card TEXT,
                     wing TEXT,
@@ -116,23 +118,23 @@ def is_bed_occupied(wing, room, bed):
     conn.close()
     return exists
 
-def add_guest(name, birth, address, id_card, wing, room, bed, check_in, check_out):
+def add_guest(name, birth_date, birth_place, address, id_card, wing, room, bed, check_in, check_out):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("""INSERT INTO current_guests 
-                 (name, birth, address, id_card, wing, room, bed, check_in, check_out)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-              (name, birth, address, id_card, wing, room, bed, str(check_in), str(check_out)))
+                 (name, birth_date, birth_place, address, id_card, wing, room, bed, check_in, check_out)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+              (name, str(birth_date), birth_place, address, id_card, wing, room, bed, str(check_in), str(check_out)))
     conn.commit()
     conn.close()
 
-def update_guest(guest_id, name, birth, address, id_card, wing, room, bed, check_in, check_out):
+def update_guest(guest_id, name, birth_date, birth_place, address, id_card, wing, room, bed, check_in, check_out):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("""UPDATE current_guests 
-                 SET name=?, birth=?, address=?, id_card=?, wing=?, room=?, bed=?, check_in=?, check_out=?
+                 SET name=?, birth_date=?, birth_place=?, address=?, id_card=?, wing=?, room=?, bed=?, check_in=?, check_out=?
                  WHERE id=?""",
-              (name, birth, address, id_card, wing, room, bed, str(check_in), str(check_out), guest_id))
+              (name, str(birth_date), birth_place, address, id_card, wing, room, bed, str(check_in), str(check_out), guest_id))
     conn.commit()
     conn.close()
 
@@ -142,8 +144,8 @@ def evacuate_guest(guest_id):
     
     # نقل البيانات للأرشيف
     c.execute("""INSERT INTO archive 
-                 (name, birth, address, id_card, wing, room, bed, check_in, check_out, status)
-                 SELECT name, birth, address, id_card, wing, room, bed, check_in, check_out, 'غادر'
+                 (name, birth_date, birth_place, address, id_card, wing, room, bed, check_in, check_out, status)
+                 SELECT name, birth_date, birth_place, address, id_card, wing, room, bed, check_in, check_out, 'غادر'
                  FROM current_guests WHERE id=?""", (guest_id,))
     
     # حذف من الحاليين
@@ -204,7 +206,8 @@ with tabs[0]:
         c1, c2 = st.columns(2)
         with c1:
             name = st.text_input("الاسم واللقب *")
-            birth = st.text_input("تاريخ ومكان الازدياد")
+            birth_date = st.date_input("تاريخ الازدياد", value=date.today() - timedelta(days=365*20))
+            birth_place = st.text_input("مكان الازدياد")
             addr = st.text_input("العنوان الكامل")
         with c2:
             id_card = st.text_input("رقم بطاقة التعريف *")
@@ -216,15 +219,18 @@ with tabs[0]:
             check_out = st.date_input("تاريخ الخروج", value=date.today() + timedelta(days=1))
         
         if st.form_submit_button("✅ تأكيد وحفظ"):
-            if not name or not id_card:
+            age = (date.today() - birth_date).days // 365
+            if age < 18:
+                st.error(f"❌ النزيل أقل من 18 سنة ({age} سنوات). لا يمكن الحجز!")
+            elif not name or not id_card:
                 st.error("يرجى ملء الاسم ورقم البطاقة")
             elif check_out <= check_in:
                 st.error("تاريخ الخروج يجب أن يكون بعد تاريخ الدخول")
             elif is_bed_occupied(wing, room, bed):
                 st.error(f"❌ السرير {bed} في {room} محجوز حالياً!")
             else:
-                add_guest(name, birth, addr, id_card, wing, room, bed, check_in, check_out)
-                st.success(f"✅ تم تسجيل النزيل {name} بنجاح")
+                add_guest(name, birth_date, birth_place, addr, id_card, wing, room, bed, check_in, check_out)
+                st.success(f"✅ تم تسجيل النزيل {name} بنجاح (عمر: {age} سنة)")
                 st.rerun()
 
 # ====================== تبويب حالة الغرف ======================
@@ -270,7 +276,8 @@ with tabs[2]:
                 c1, c2 = st.columns(2)
                 with c1:
                     edit_name = st.text_input("الاسم واللقب *", value=guest_row['name'])
-                    edit_birth = st.text_input("تاريخ ومكان الازدياد", value=guest_row['birth'])
+                    edit_birth_date = st.date_input("تاريخ الازدياد", value=date.fromisoformat(guest_row['birth_date']))
+                    edit_birth_place = st.text_input("مكان الازدياد", value=guest_row['birth_place'])
                     edit_addr = st.text_input("العنوان الكامل", value=guest_row['address'])
                 with c2:
                     edit_id_card = st.text_input("رقم بطاقة التعريف *", value=guest_row['id_card'])
@@ -282,15 +289,18 @@ with tabs[2]:
                     edit_check_out = st.date_input("تاريخ الخروج", value=date.fromisoformat(guest_row['check_out']))
                 
                 if st.form_submit_button("💾 حفظ التعديلات"):
-                    if not edit_name or not edit_id_card:
+                    edit_age = (date.today() - edit_birth_date).days // 365
+                    if edit_age < 18:
+                        st.error(f"❌ النزيل أقل من 18 سنة ({edit_age} سنوات). لا يمكن التعديل!")
+                    elif not edit_name or not edit_id_card:
                         st.error("يرجى ملء الاسم ورقم البطاقة")
                     elif edit_check_out <= edit_check_in:
                         st.error("تاريخ الخروج يجب أن يكون بعد تاريخ الدخول")
                     elif is_bed_occupied(edit_wing, edit_room, edit_bed) and (edit_wing != guest_row['wing'] or edit_room != guest_row['room'] or edit_bed != guest_row['bed']):
                         st.error(f"❌ السرير {edit_bed} في {edit_room} محجوز حالياً!")
                     else:
-                        update_guest(edit_guest_id, edit_name, edit_birth, edit_addr, edit_id_card, edit_wing, edit_room, edit_bed, edit_check_in, edit_check_out)
-                        st.success(f"✅ تم تعديل بيانات النزيل {edit_name} بنجاح")
+                        update_guest(edit_guest_id, edit_name, edit_birth_date, edit_birth_place, edit_addr, edit_id_card, edit_wing, edit_room, edit_bed, edit_check_in, edit_check_out)
+                        st.success(f"✅ تم تعديل بيانات النزيل {edit_name} بنجاح (عمر: {edit_age} سنة)")
                         st.rerun()
     
     st.markdown("---")
@@ -317,7 +327,7 @@ if st.session_state.user_role == "مدير":
         monthly_df = get_monthly_data(month, year)
         if not monthly_df.empty:
             output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 monthly_df.to_excel(writer, index=False, sheet_name='الأرشيف الشهري')
             output.seek(0)
             st.download_button(
@@ -350,15 +360,40 @@ if st.session_state.user_role == "مدير":
             st.success("تم تحديث كلمة السر بنجاح.")
         
         st.markdown("---")
-        st.subheader("🛏️ إدارة الأسرة")
+        st.subheader("🛏️ إدارة الأسرة والغرف")
         manage_wing = st.selectbox("اختر الجناح", list(wings.keys()))
-        manage_room = st.selectbox("اختر الغرفة", list(wings[manage_wing].keys()))
-        current_beds = wings[manage_wing][manage_room]
         
+        # إضافة غرفة جديدة
+        st.subheader("➕ إضافة غرفة جديدة")
+        new_room_name = st.text_input("اسم الغرفة الجديد (مثل: غرفة 10)")
+        new_bed_count = st.number_input("عدد الأسرة", min_value=1, value=6)
+        if st.button("إضافة الغرفة"):
+            if new_room_name and new_room_name not in wings[manage_wing]:
+                st.session_state.wings[manage_wing][new_room_name] = new_bed_count
+                st.success(f"تم إضافة {new_room_name} مع {new_bed_count} سرير.")
+                st.rerun()
+            else:
+                st.error("اسم الغرفة موجود أو فارغ!")
+        
+        # حذف غرفة
+        st.subheader("🗑️ حذف غرفة")
+        del_room = st.selectbox("اختر الغرفة لحذفها", list(wings[manage_wing].keys()))
+        if st.button("حذف الغرفة"):
+            occupied = len(get_current_guests()[(get_current_guests()['wing'] == manage_wing) & (get_current_guests()['room'] == del_room)])
+            if occupied > 0:
+                st.error(f"لا يمكن حذف {del_room} لأنها تحتوي على {occupied} نزيل محجوز!")
+            else:
+                del st.session_state.wings[manage_wing][del_room]
+                st.success(f"تم حذف {del_room} بنجاح.")
+                st.rerun()
+        
+        # تحديث عدد الأسرة في غرفة موجودة
+        st.subheader("🔄 تحديث عدد الأسرة في غرفة")
+        manage_room = st.selectbox("اختر الغرفة للتحديث", list(wings[manage_wing].keys()))
+        current_beds = wings[manage_wing][manage_room]
         new_beds = st.number_input("عدد الأسرة الجديد", min_value=1, value=current_beds)
         if st.button("تحديث عدد الأسرة"):
             if new_beds != current_beds:
-                # تحقق إذا كان هناك أسرة محجوزة أكبر من الجديد
                 occupied_beds = len(get_current_guests()[(get_current_guests()['wing'] == manage_wing) & (get_current_guests()['room'] == manage_room)])
                 if new_beds < occupied_beds:
                     st.error(f"لا يمكن تقليل الأسرة إلى {new_beds} لأن هناك {occupied_beds} سرير محجوز!")
