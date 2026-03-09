@@ -3,25 +3,26 @@ import sqlite3
 import pandas as pd
 from datetime import date
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 import io
 
-# 1. إعدادات الصفحة والتنسيق الملكي
+# 1. إعداد الصفحة والتنسيق الملكي
 st.set_page_config(page_title="نظام بيت شباب قالمة", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
     * { font-family: 'Cairo', sans-serif; direction: RTL; text-align: right; }
-    .main-title { background: linear-gradient(90deg, #1e3c72, #2a5298); color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-weight: bold; }
-    .section-box { background: #f8f9fa; padding: 20px; border-radius: 10px; border-right: 5px solid #1e3c72; margin-bottom: 20px; }
-    .developer-footer { background: #1e3c72; color: white; padding: 10px; border-radius: 8px; text-align: center; margin-top: 30px; font-size: 0.8rem; }
+    .main-title { background: linear-gradient(90deg, #1e3c72, #2a5298); color: white; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; font-weight: bold; }
+    .section-box { background: #ffffff; padding: 20px; border-radius: 10px; border-right: 6px solid #1e3c72; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+    .stat-card { background: #1e3c72; color: white; padding: 15px; border-radius: 10px; text-align: center; }
+    .bed-box { display: inline-block; width: 40px; height: 40px; margin: 4px; border-radius: 6px; text-align: center; line-height: 40px; color: white; font-weight: bold; font-size: 0.9rem; }
+    .developer-footer { background: #1e3c72; color: white; padding: 12px; border-radius: 8px; text-align: center; margin-top: 40px; font-size: 0.85rem; border: 1px solid #00d4ff; }
     </style>
 """, unsafe_allow_html=True)
 
-# 2. إدارة قاعدة البيانات (النسخة v9 لضمان توافق الأعمدة)
 DB_FILE = 'hostel_guelma_v9_final.db'
 
 def init_db():
@@ -29,7 +30,7 @@ def init_db():
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS current_guests (
             id INTEGER PRIMARY KEY AUTOINCREMENT, 
-            name TEXT, birth_date TEXT, birth_place TEXT, id_type TEXT, id_card TEXT, 
+            name TEXT, birth_date TEXT, birth_place TEXT, id_type TEXT, id_card TEXT UNIQUE, 
             wing TEXT, room TEXT, bed TEXT, check_in TEXT, check_out TEXT,
             is_minor TEXT, minor_doc TEXT, phone TEXT, purpose TEXT, job TEXT, address TEXT
         )''')
@@ -37,100 +38,98 @@ def init_db():
 
 init_db()
 
-# 3. دالة تصدير الوورد المراجعة (بالترتيب الرسمي)
+# دالة تصدير الوورد (الترويسة الرباعية + 9 أعمدة)
 def generate_word_report(data, r_date):
     doc = Document()
     section = doc.sections[0]
     section.orientation = 1 
     section.page_width, section.page_height = section.page_height, section.page_width
-
-    header_text = [
-        "وزارة الشباب والرياضة",
-        "مديرية الشباب والرياضة لولاية قالمة",
-        "ديوان مؤسسات الشباب لولاية قالمة",
-        "بيت الشباب محمدي يوسف قالمة"
-    ]
+    
+    header_text = ["وزارة الشباب والرياضة", "مديرية الشباب والرياضة لولاية قالمة", "ديوان مؤسسات الشباب لولاية قالمة", "بيت الشباب محمدي يوسف قالمة"]
     for line in header_text:
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(line)
-        run.bold = True
-        run.font.size = Pt(13)
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(line); run.bold = True; run.font.size = Pt(14)
         p.paragraph_format.space_after = Pt(0)
 
     doc.add_paragraph(f"\nسجل الحجوزات اليومي بتاريخ: {r_date}").alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table = doc.add_table(rows=1, cols=9); table.style = 'Table Grid'; table.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    table = doc.add_table(rows=1, cols=9)
-    table.style = 'Table Grid'
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    
-    # رأس الجدول كما طلبت
     headers = ["الملاحظات", "المهنة", "عدد الليالي", "نوع ورقم بطاقة التعريف", "العنوان الشخصي", "تاريخ ومكان الازدياد", "الاسم واللقب", "رقم الغرفة", "رقم"]
-    hdr_cells = table.rows[0].cells
     for i, h in enumerate(headers):
-        hdr_cells[i].text = h
-        hdr_cells[i].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        table.rows[0].cells[i].text = h
+        table.rows[0].cells[i].paragraphs[0].runs[0].bold = True
 
     for idx, row in enumerate(data, 1):
-        row_cells = table.add_row().cells
-        row_cells[8].text = str(idx)             # المسلسل
-        row_cells[7].text = str(row[7])          # رقم الغرفة (Index 7)
-        row_cells[6].text = str(row[1])          # الاسم (Index 1)
-        row_cells[5].text = f"{row[2]} بـ {row[3]}" # الميلاد (Index 2 & 3)
-        row_cells[4].text = str(row[16]) if row[16] else "قالمة" # العنوان (Index 16)
-        row_cells[3].text = f"{row[4]} {row[5]}" # الهوية (Index 4 & 5)
-        row_cells[2].text = "1"                  # الليالي
-        row_cells[1].text = str(row[15]) if row[15] else "/" # المهنة (Index 15)
-        row_cells[0].text = ""                   # ملاحظات
-        for cell in row_cells: cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cells = table.add_row().cells
+        cells[8].text, cells[7].text, cells[6].text = str(idx), str(row[7]), str(row[1])
+        cells[5].text = f"{row[2]} بـ {row[3]}"
+        cells[4].text = str(row[16]) if row[16] else "قالمة"
+        cells[3].text = f"{row[4]} {row[5]}"
+        cells[2].text, cells[1].text, cells[0].text = "1", str(row[15]) if row[15] else "/", ""
+        for c in cells: c.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    target = io.BytesIO()
-    doc.save(target)
+    target = io.BytesIO(); doc.save(target)
     return target.getvalue()
 
-# 4. الواجهة الرسومية والتبويبات
+# واجهة البرنامج
 st.markdown('<div class="main-title">🏢 نظام إدارة بيت الشباب محمدي يوسف - قالمة</div>', unsafe_allow_html=True)
 
-tabs = st.tabs(["➕ حجز جديد", "📊 الإحصائيات", "📋 التقارير"])
+# بيانات الأجنحة والغرف
+wings_data = {
+    "جناح ذكور 👨": {"غرفة 01": 6, "غرفة 02": 6, "غرفة 03": 6, "غرفة 04": 6, "غرفة 05": 6, "مرقد 01": 4, "مرقد 02": 4},
+    "جناح إناث 👩": {"غرفة 06": 6, "غرفة 07": 6, "غرفة 08": 6, "غرفة 09": 6, "غرفة 10": 6, "مرقد 01": 4, "مرقد 02": 4}
+}
 
-with tabs[0]: # تبويب الحجز
-    st.markdown('<div class="section-box"><h4>📝 استمارة تسجيل نزيل</h4></div>', unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        g_name = st.text_input("👤 الاسم واللقب")
-        g_bday = st.date_input("📅 تاريخ الميلاد", value=date(2000, 1, 1))
-        g_bplace = st.text_input("📍 مكان الميلاد")
-        g_address = st.text_input("🏠 العنوان الشخصي")
-        g_job = st.text_input("💼 المهنة")
-    with col2:
-        g_id_type = st.selectbox("📄 نوع الوثيقة", ["بطاقة تعريف وطنية", "جواز سفر", "رخصة سياقة"])
-        id_card_val = st.text_input("🪪 رقم الوثيقة")
-        g_phone = st.text_input("📞 رقم الهاتف")
-        g_purpose = st.text_input("🎯 غرض الزيارة")
-        g_wing = st.selectbox("🏢 الجناح", ["جناح ذكور 👨", "جناح إناث 👩"])
+tabs = st.tabs(["➕ حجز جديد", "📊 حالة الغرف", "📋 التقارير والوارد"])
+
+# التبويب 1: الحجز
+with tabs[0]:
+    st.markdown('<div class="section-box"><h4>📝 تسجيل نزيل جديد</h4></div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        name = st.text_input("👤 الاسم واللقب"); bday = st.date_input("📅 تاريخ الميلاد", date(2000, 1, 1))
+        bplace = st.text_input("📍 مكان الميلاد"); addr = st.text_input("🏠 العنوان الشخصي")
+    with c2:
+        id_t = st.selectbox("📄 الوثيقة", ["بطاقة تعريف", "جواز سفر"]); id_n = st.text_input("🪪 رقم الوثيقة")
+        job = st.text_input("💼 المهنة"); ph = st.text_input("📞 الهاتف"); w_sel = st.selectbox("🏢 الجناح", list(wings_data.keys()))
     
-    r_sel = st.selectbox("🚪 اختر الغرفة", ["غرفة 01", "غرفة 02", "غرفة 03", "غرفة 04", "غرفة 05"])
-    bed_sel = st.radio("🛏️ السرير", ["1", "2", "3", "4", "5", "6"], horizontal=True)
+    r_sel = st.selectbox("🚪 الغرفة", list(wings_data[w_sel].keys()))
+    b_sel = st.radio("🛏️ السرير", [str(i) for i in range(1, wings_data[w_sel][r_sel]+1)], horizontal=True)
 
-    if st.button("💾 حفظ الحجز", use_container_width=True, type="primary"):
-        if g_name and id_card_val:
+    if st.button("💾 حفظ الحجز", type="primary"):
+        if name and id_n:
             with sqlite3.connect(DB_FILE) as conn:
-                conn.execute("""INSERT INTO current_guests 
-                (name, birth_date, birth_place, id_type, id_card, wing, room, bed, check_in, phone, purpose, job, address) 
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", 
-                (g_name, str(g_bday), g_bplace, g_id_type, id_card_val, g_wing, r_sel, bed_sel, str(date.today()), g_phone, g_purpose, g_job, g_address))
-            st.success(f"✅ تم تسجيل {g_name} بنجاح!")
-        else: st.error("الرجاء ملء الاسم ورقم الهوية")
+                conn.execute("INSERT INTO current_guests (name, birth_date, birth_place, id_type, id_card, wing, room, bed, check_in, job, address, phone) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                             (name, str(bday), bplace, id_t, id_n, w_sel, r_sel, b_sel, str(date.today()), job, addr, ph))
+            st.success("✅ تم الحفظ!"); st.rerun()
 
-with tabs[2]: # تبويب التقارير
-    st.subheader("📑 استخراج سجل الوارد (Word)")
-    r_date = st.date_input("اختر التاريخ", date.today())
-    if st.button("📄 توليد وتحميل الملف"):
+# التبويب 2: حالة الغرف (الذي سألت عنه)
+with tabs[1]:
+    st.markdown('<div class="section-box"><h4>📊 توزيع الأسرة والنزلاء</h4></div>', unsafe_allow_html=True)
+    with sqlite3.connect(DB_FILE) as conn:
+        booked = pd.read_sql_query("SELECT room, bed, name FROM current_guests", conn)
+    
+    for wing, rooms in wings_data.items():
+        st.subheader(wing)
+        cols = st.columns(4)
+        for i, (room, count) in enumerate(rooms.items()):
+            with cols[i % 4]:
+                st.write(f"**{room}**")
+                for b in range(1, count + 1):
+                    is_full = booked[(booked['room'] == room) & (booked['bed'] == str(b))]
+                    bg = "#e74c3c" if not is_full.empty else "#2ecc71"
+                    title = is_full['name'].values[0] if not is_full.empty else "شاغر"
+                    st.markdown(f'<div class="bed-box" style="background:{bg};" title="{title}">{b}</div>', unsafe_allow_html=True)
+
+# التبويب 3: التقارير
+with tabs[2]:
+    st.markdown('<div class="section-box"><h4>📄 استخراج سجل الوارد (Word)</h4></div>', unsafe_allow_html=True)
+    d_rep = st.date_input("التاريخ", date.today())
+    if st.button("📥 تحميل ملف الوورد"):
         with sqlite3.connect(DB_FILE) as conn:
-            data = conn.execute("SELECT * FROM current_guests WHERE check_in = ?", (str(r_date),)).fetchall()
+            data = conn.execute("SELECT * FROM current_guests WHERE check_in = ?", (str(d_rep),)).fetchall()
         if data:
-            doc_bytes = generate_word_report(data, r_date)
-            st.download_button("📥 اضغط هنا لتحميل ملف الوورد", doc_bytes, f"سجل_{r_date}.docx")
-        else: st.warning("لا توجد بيانات لهذا التاريخ")
+            st.download_button("📁 اضغط للتحميل", generate_word_report(data, d_rep), f"سجل_{d_rep}.docx")
+        else: st.warning("لا توجد بيانات")
 
 st.markdown(f'<div class="developer-footer">Developer ®ridha_merzoug® [رضا مرزوق] - 2026</div>', unsafe_allow_html=True)
