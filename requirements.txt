@@ -5,3 +5,4 @@ st-gsheets-connection
 xlsxwriter
 openpyxl
 fpdf
+python-docx
