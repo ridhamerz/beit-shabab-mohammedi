@@ -9,210 +9,188 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 import io
 
 # ────────────────────────────────────────────────
-#                إعداد الصفحة والـ CSS (تنسيقاتك الأصلية)
+#                1. إعداد الصفحة والـ CSS الملكي
 # ────────────────────────────────────────────────
 st.set_page_config(page_title="نظام بيت شباب محمدي يوسف قالمة", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-    * { font-family: 'Cairo', 'Tahoma', sans-serif; direction: RTL; text-align: right; }
+    * { font-family: 'Cairo', sans-serif; direction: RTL; text-align: right; }
     .main-title { 
         background: linear-gradient(90deg, #1e3c72, #2a5298); 
         color: white; padding: 20px; border-radius: 15px; 
-        text-align: center; margin-bottom: 25px; 
-        font-size: 1.6rem; font-weight: bold;
+        text-align: center; margin-bottom: 25px; font-weight: bold;
         box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     }
+    .section-box {
+        background: #ffffff; padding: 20px; border-radius: 12px; 
+        border-right: 6px solid #1e3c72; margin-bottom: 20px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
     .bed-box { 
-        display: inline-block; width: 42px; height: 38px; margin: 4px; 
-        border-radius: 6px; text-align: center; line-height: 38px; 
-        color: white; font-size: 0.85rem; font-weight: bold; 
+        display: inline-block; width: 45px; height: 40px; margin: 5px; 
+        border-radius: 8px; text-align: center; line-height: 40px; 
+        color: white; font-weight: bold; font-size: 0.9rem;
     }
     .free { background-color: #28a745; border-bottom: 3px solid #1e7e34; }
     .occupied { background-color: #dc3545; border-bottom: 3px solid #a71d2a; }
-    .stat-card { 
-        background: white; padding: 20px; border-radius: 12px; 
-        border-right: 6px solid #1e3c72; text-align: center; 
-        box-shadow: 0 4px 10px rgba(0,0,0,0.08); 
-    }
     .developer-footer { 
-        background: #1e3c72; color: #ffffff; padding: 8px; 
+        background: #1e3c72; color: white; padding: 10px; 
         border-radius: 10px; text-align: center; margin-top: 50px; 
         font-size: 0.8rem; border: 1px solid #00d4ff;
     }
-    .section-box {
-        background: #f8f9fa; padding: 1rem; border-radius: 8px; 
-        margin-bottom: 1.2rem; border-right: 4px solid;
-    }
-    .minor-box {
-        background: #fff3cd !important; border-color: #ffc107 !important;
-        padding: 1rem; border-radius: 8px; margin: 1rem 0;
-    }
-    .success-box {
-        background: #d4edda; color: #155724; padding: 1.5rem; 
-        border-radius: 10px; border: 1px solid #c3e6cb; 
-        margin: 1.5rem 0; text-align: center;
-    }
+    .success-box { background: #d4edda; color: #155724; padding: 15px; border-radius: 10px; text-align: center; margin: 10px 0; }
     </style>
 """, unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────
-#               قاعدة البيانات (تعديلك)
+#               2. إدارة قاعدة البيانات
 # ────────────────────────────────────────────────
-DB_FILE = 'youth_hostel.db'
+DB_FILE = 'youth_hostel_v10.db'
 
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS current_guests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL, birth_date TEXT, birth_place TEXT, address TEXT,
-        id_card TEXT UNIQUE, wing TEXT, room TEXT, bed TEXT,
-        check_in TEXT, check_out TEXT, status TEXT DEFAULT 'مقيم',
-        is_minor TEXT DEFAULT 'لا', guardian_name TEXT, guardian_permission TEXT,
-        job TEXT, phone TEXT
-    )''')
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS current_guests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT, birth_date TEXT, birth_place TEXT, address TEXT,
+            id_card TEXT, wing TEXT, room TEXT, bed TEXT,
+            check_in TEXT, check_out TEXT, status TEXT DEFAULT 'مقيم',
+            job TEXT, phone TEXT, notes TEXT, nights INTEGER
+        )''')
+        conn.commit()
 
 init_db()
 
 # ────────────────────────────────────────────────
-#               دالة تصدير الوورد الرسمية (الجديدة)
+#               3. الدوال المساعدة (الذكاء البرمجي)
 # ────────────────────────────────────────────────
+def get_old_guest(id_num):
+    with sqlite3.connect(DB_FILE) as conn:
+        return conn.execute("SELECT name, birth_date, birth_place, address, job, phone FROM current_guests WHERE id_card=? ORDER BY id DESC LIMIT 1", (id_num,)).fetchone()
+
+def get_vacant_beds(wing, room):
+    all_beds = [str(i) for i in range(1, 7)] # افتراض 6 أسرة لكل غرفة
+    with sqlite3.connect(DB_FILE) as conn:
+        occupied = conn.execute("SELECT bed FROM current_guests WHERE wing=? AND room=? AND status='مقيم'", (wing, room)).fetchall()
+        occupied_list = [str(row[0]) for row in occupied]
+    return [b for b in all_beds if b not in occupied_list]
+
 def generate_word_report(data, r_date):
     doc = Document()
     section = doc.sections[0]
-    section.orientation = 1 # وضعية العرض Landscape
+    section.orientation = 1
     section.page_width, section.page_height = section.page_height, section.page_width
-
-    # الترويسة الرسمية لولاية قالمة
-    header_text = [
-        "وزارة الشباب والرياضة",
-        "مديرية الشباب والرياضة لولاية قالمة",
-        "ديوان مؤسسات الشباب لولاية قالمة",
-        "بيت الشباب محمدي يوسف قالمة"
-    ]
-    for line in header_text:
+    for line in ["وزارة الشباب والرياضة", "مديرية الشباب والرياضة لولاية قالمة", "ديوان مؤسسات الشباب لولاية قالمة", "بيت الشباب محمدي يوسف قالمة"]:
         p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(line); run.bold = True; run.font.size = Pt(13)
-        p.paragraph_format.space_after = Pt(0)
-
+        run = p.add_run(line); run.bold = True; run.font.size = Pt(14)
     doc.add_paragraph(f"\nسجل الحجوزات اليومي بتاريخ: {r_date}").alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    # بناء الجدول (9 أعمدة كما طلبت سابقاً)
-    table = doc.add_table(rows=1, cols=9); table.style = 'Table Grid'; table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    headers = ["الملاحظات", "المهنة", "عدد الليالي", "نوع ورقم الوثيقة", "العنوان الشخصي", "تاريخ ومكان الازدياد", "الاسم واللقب", "رقم الغرفة", "رقم"]
-    
-    for i, h in enumerate(headers):
-        table.rows[0].cells[i].text = h
-        table.rows[0].cells[i].paragraphs[0].runs[0].bold = True
-
+    table = doc.add_table(rows=1, cols=9); table.style = 'Table Grid'
+    headers = ["الملاحظات", "المهنة", "عدد الليالي", "رقم الوثيقة", "العنوان", "الميلاد", "الاسم واللقب", "الغرفة", "رقم"]
+    for i, h in enumerate(headers): table.rows[0].cells[i].text = h
     for idx, row in enumerate(data, 1):
         cells = table.add_row().cells
-        cells[8].text = str(idx)             # المسلسل
-        cells[7].text = str(row[7])          # رقم الغرفة
-        cells[6].text = str(row[1])          # الاسم
-        cells[5].text = f"{row[2]} بـ {row[3]}" # الميلاد والمكان
-        cells[4].text = str(row[4])          # العنوان
-        cells[3].text = str(row[5])          # رقم الهوية
-        cells[2].text = "1"                  # الليالي
-        cells[1].text = str(row[15]) if row[15] else "/" # المهنة
-        cells[0].text = str(row[13]) if row[12]=='نعم' else "" # ملاحظات ولي الأمر
-        for c in cells: c.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    target = io.BytesIO(); doc.save(target)
-    return target.getvalue()
+        cells[8].text, cells[7].text, cells[6].text = str(idx), str(row[7]), str(row[1])
+        cells[5].text, cells[4].text, cells[3].text = f"{row[2]}", str(row[4]), str(row[5])
+        cells[2].text, cells[1].text, cells[0].text = str(row[15]), str(row[12]), str(row[14])
+    target = io.BytesIO(); doc.save(target); return target.getvalue()
 
 # ────────────────────────────────────────────────
-#               بقية الدوال والمنطق (كود رضا المعدل)
+#               4. نظام الدخول الصارم
 # ────────────────────────────────────────────────
-def is_bed_occupied(wing, room, bed):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT 1 FROM current_guests WHERE wing=? AND room=? AND bed=? AND status='مقيم'", (wing, room, bed))
-    res = c.fetchone(); conn.close(); return res is not None
+if 'auth' not in st.session_state: st.session_state.auth = False
 
-def add_guest(name, b_date, b_place, addr, id_c, wing, room, bed, c_in, c_out, g_name, g_perm, job, phone):
-    age = (date.today() - b_date).days // 365
-    is_m = 'نعم' if age < 18 else 'لا'
-    conn = sqlite3.connect(DB_FILE); c = conn.cursor()
-    c.execute("""INSERT INTO current_guests (name, birth_date, birth_place, address, id_card, wing, room, bed, check_in, check_out, is_minor, guardian_name, guardian_permission, job, phone)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", 
-              (name, str(b_date), b_place, addr, id_c, wing, room, bed, str(c_in), str(c_out), is_m, g_name, g_perm, job, phone))
-    conn.commit(); conn.close()
-
-# تسجيل الدخول (نفس منطقك)
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-if not st.session_state.authenticated:
-    st.markdown('<div class="main-title">®® برنامج بيت الشباب محمدي يوسف قالمة®®</div>', unsafe_allow_html=True)
-    role = st.selectbox("الصفة", ["مدير", "عون استقبال"])
-    pwd = st.text_input("كلمة السر", type="password")
-    if st.button("دخول آمن", use_container_width=True):
-        if pwd == ("1234" if role=="مدير" else "5678"):
-            st.session_state.authenticated = True; st.session_state.user_role = role; st.rerun()
+if not st.session_state.auth:
+    st.markdown('<div class="main-title">🔐 تسجيل الدخول للنظام</div>', unsafe_allow_html=True)
+    with st.container():
+        role = st.selectbox("👤 اختر الصفة:", ["مدير", "عون استقبال"])
+        pwd = st.text_input("🔑 كلمة السر:", type="password")
+        if st.button("دخول", use_container_width=True):
+            if (role == "مدير" and pwd == "1234") or (role == "عون استقبال" and pwd == "5678"):
+                st.session_state.auth = True; st.session_state.role = role; st.rerun()
+            else: st.error("❌ كلمة السر خاطئة")
     st.stop()
 
-st.markdown('<div class="main-title">®® برنامج بيت الشباب محمدي يوسف قالمة®®</div>', unsafe_allow_html=True)
-tabs = st.tabs(["➕ حجز جديد", "📊 حالة الغرف", "📋 السجل والطباعة"])
+# ────────────────────────────────────────────────
+#               5. الواجهة الرئيسية
+# ────────────────────────────────────────────────
+st.markdown('<div class="main-title">🏢 نظام إدارة بيت الشباب محمدي يوسف - قالمة</div>', unsafe_allow_html=True)
+st.sidebar.success(f"مرحباً: {st.session_state.role}")
+if st.sidebar.button("تسجيل الخروج"): st.session_state.auth = False; st.rerun()
 
-# --- تبويب الحجز (تنسيق رضا الكامل) ---
+tabs = st.tabs(["➕ حجز جديد", "📊 حالة الغرف", "📋 السجلات"])
+
+# --- تبويب الحجز (الذكاء الاصطناعي والتوفر) ---
 with tabs[0]:
-    if st.session_state.get('booking_success'):
-        st.markdown('<div class="success-box"><h3>🎉 تم التسجيل بنجاح!</h3></div>', unsafe_allow_html=True)
-        if st.button("➕ حجز نزيل جديد"): st.session_state.booking_success = False; st.rerun()
-    else:
-        with st.form("booking_form"):
-            st.markdown('<div class="section-box" style="border-color:#1e3c72;"><h4>👤 معلومات النزيل</h4></div>', unsafe_allow_html=True)
-            col1, col2 = st.columns(2)
-            with col1:
-                name = st.text_input("الاسم واللقب")
-                b_date = st.date_input("تاريخ الميلاد", date(2000,1,1))
-                b_place = st.text_input("مكان الميلاد")
-                addr = st.text_input("العنوان")
-            with col2:
-                id_c = st.text_input("رقم الوثيقة")
-                job = st.text_input("المهنة")
-                phone = st.text_input("الهاتف")
-                wing = st.selectbox("الجناح", ["جناح ذكور", "جناح إناث"])
-            
-            room = st.selectbox("الغرفة", ["غرفة 01", "غرفة 02", "غرفة 03", "غرفة 04", "غرفة 05"])
-            bed = st.radio("السرير", ["سرير 1", "سرير 2", "سرير 3", "سرير 4"], horizontal=True)
-            
-            # قسم القاصرين
-            age = (date.today() - b_date).days // 365
-            g_name = g_perm = ""
-            if age < 18:
-                st.warning(f"⚠️ النزيل قاصر ({age} سنة)")
-                g_name = st.text_input("اسم ولي الأمر")
-                g_perm = st.selectbox("نوع التصريح", ["موافقة خطية", "حضور شخصي"])
+    st.markdown('<div class="section-box"><h4>🔍 البحث السريع والتسجيل</h4></div>', unsafe_allow_html=True)
+    search_id = st.text_input("🪪 أدخل رقم الهوية (للملء التلقائي):", placeholder="اكتب رقم بطاقة التعريف هنا...")
+    
+    old_guest = get_old_guest(search_id) if search_id else None
+    if old_guest: st.info(f"✅ تم العثور على بيانات: {old_guest[0]}")
 
-            if st.form_submit_button("💾 تأكيد الحجز"):
-                add_guest(name, b_date, b_place, addr, id_c, wing, room, bed, date.today(), date.today()+timedelta(days=1), g_name, g_perm, job, phone)
-                st.session_state.booking_success = True; st.rerun()
+    with st.form("booking_v10"):
+        c1, c2 = st.columns(2)
+        with c1:
+            name = st.text_input("👤 الاسم واللقب الكامل", value=old_guest[0] if old_guest else "")
+            bday = st.date_input("📅 تاريخ الميلاد", value=pd.to_datetime(old_guest[1]) if old_guest else date(2000,1,1))
+            bplace = st.text_input("📍 مكان الميلاد", value=old_guest[2] if old_guest else "")
+            addr = st.text_input("🏠 العنوان الشخصي", value=old_guest[3] if old_guest else "")
+            job = st.text_input("💼 المهنة", value=old_guest[4] if old_guest else "")
+        with c2:
+            id_num = st.text_input("🪪 رقم الوثيقة", value=search_id if search_id else "")
+            phone = st.text_input("📞 رقم الهاتف", value=old_guest[5] if old_guest else "")
+            nights = st.number_input("🌙 عدد الليالي", min_value=1, value=1)
+            wing = st.selectbox("🏢 الجناح", ["جناح ذكور 👨", "جناح إناث 👩"])
+            room = st.selectbox("🚪 رقم الغرفة", [f"غرفة {i:02d}" for i in range(1, 11)])
 
-# --- تبويب حالة الغرف (تنسيق رضا) ---
+        # ميزة الأسرة الشاغرة فقط
+        vacant_beds = get_vacant_beds(wing, room)
+        if vacant_beds:
+            bed = st.radio("🛏️ الأسرة الشاغرة (اختر واحداً):", vacant_beds, horizontal=True)
+            notes = st.text_area("📝 ملاحظات إضافية")
+            submit = st.form_submit_button("💾 تأكيد الحجز", type="primary", use_container_width=True)
+        else:
+            st.error("⚠️ هذه الغرفة ممتلئة حالياً!")
+            submit = False
+
+        if submit:
+            out_date = date.today() + timedelta(days=nights)
+            with sqlite3.connect(DB_FILE) as conn:
+                conn.execute("""INSERT INTO current_guests 
+                (name, birth_date, birth_place, address, id_card, wing, room, bed, check_in, check_out, job, phone, notes, nights) 
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (name, str(bday), bplace, addr, id_num, wing, room, bed, str(date.today()), str(out_date), job, phone, notes, nights))
+            st.success("🎉 تم تسجيل الحجز بنجاح!"); st.balloons()
+
+# --- تبويب حالة الغرف (بصري) ---
 with tabs[1]:
-    st.subheader("📊 حالة الأجنحة والأسرة")
-    wings_map = {"جناح ذكور": 5, "جناح إناث": 5}
-    for w_name in wings_map:
-        st.write(f"**{w_name}**")
+    st.markdown('<div class="section-box"><h4>📊 خريطة الأسرة الحالية</h4></div>', unsafe_allow_html=True)
+    with sqlite3.connect(DB_FILE) as conn:
+        booked = pd.read_sql_query("SELECT wing, room, bed, name FROM current_guests WHERE status='مقيم'", conn)
+    
+    for w in ["جناح ذكور 👨", "جناح إناث 👩"]:
+        st.subheader(w)
         cols = st.columns(5)
-        for i in range(1, 6):
-            status = "occupied" if is_bed_occupied(w_name, f"غرفة {i:02d}", "سرير 1") else "free"
-            cols[i-1].markdown(f'<div class="bed-box {status}">غ {i}</div>', unsafe_allow_html=True)
+        for i in range(1, 11):
+            r_name = f"غرفة {i:02d}"
+            with cols[(i-1)%5]:
+                st.write(f"**{r_name}**")
+                for b in range(1, 7):
+                    is_occ = booked[(booked['wing']==w) & (booked['room']==r_name) & (booked['bed']==str(b))]
+                    color = "occupied" if not is_occ.empty else "free"
+                    st.markdown(f'<div class="bed-box {color}" title="{is_occ["name"].iloc[0] if not is_occ.empty else "شاغر"}">{b}</div>', unsafe_allow_html=True)
 
-# --- تبويب الطباعة (الجديد كلياً بـ Word) ---
+# --- تبويب السجلات والطباعة ---
 with tabs[2]:
-    st.markdown('<div class="section-box" style="border-color:#28a745;"><h4>📋 استخراج السجل الرسمي</h4></div>', unsafe_allow_html=True)
-    target_date = st.date_input("اختر تاريخ السجل", date.today())
-    if st.button("📄 توليد ملف Word للطباعة"):
+    st.markdown('<div class="section-box"><h4>📋 استخراج سجل الوارد (Word)</h4></div>', unsafe_allow_html=True)
+    rep_date = st.date_input("اختر التاريخ:", date.today())
+    if st.button("📥 تحميل ملف الوورد"):
         with sqlite3.connect(DB_FILE) as conn:
-            data = conn.execute("SELECT * FROM current_guests WHERE check_in = ?", (str(target_date),)).fetchall()
+            data = conn.execute("SELECT * FROM current_guests WHERE check_in=?", (str(rep_date),)).fetchall()
         if data:
-            doc_bytes = generate_word_report(data, target_date)
-            st.download_button("📥 تحميل سجل الوارد الجاهز", doc_bytes, f"سجل_{target_date}.docx")
+            st.download_button("📁 اضغط هنا للتحميل", generate_word_report(data, rep_date), f"سجل_{rep_date}.docx")
         else: st.warning("لا توجد بيانات لهذا التاريخ")
 
+# الفوتر
 st.markdown('<div class="developer-footer">Developer ®ridha_merzoug® [رضا مرزوق] - 2026</div>', unsafe_allow_html=True)
