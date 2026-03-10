@@ -3,10 +3,6 @@ import pandas as pd
 import sqlite3
 import datetime
 from datetime import date, timedelta
-from docx import Document
-from docx.shared import Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
 import io
 
 # ────────────────────────────────────────────────
@@ -46,27 +42,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────
-#               2. إدارة قاعدة البيانات
+#               2. إدارة قاعدة البيانات (تحديث ذكي)
 # ────────────────────────────────────────────────
-DB_FILE = 'youth_hostel_final_v1.db'
+DB_FILE = 'youth_hostel_pro_v1.db'
 
 def init_db():
-    with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS current_guests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT, birth_date TEXT, birth_place TEXT, address TEXT,
-            id_type TEXT, id_card TEXT, nationality TEXT, entry_date TEXT,
-            wing TEXT, room TEXT, bed TEXT, check_in TEXT, check_in_time TEXT,
-            check_out TEXT, status TEXT DEFAULT 'مقيم', 
-            job TEXT, phone TEXT, notes TEXT, nights INTEGER, companions TEXT, minor_auth TEXT
-        )''')
-        conn.commit()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # إنشاء الجدول الأساسي
+    c.execute('''CREATE TABLE IF NOT EXISTS current_guests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT, birth_date TEXT, birth_place TEXT, address TEXT,
+        id_type TEXT, id_card TEXT, nationality TEXT, entry_date TEXT,
+        wing TEXT, room TEXT, bed TEXT, check_in TEXT, check_in_time TEXT,
+        check_out TEXT, status TEXT DEFAULT 'مقيم', 
+        job TEXT, phone TEXT, notes TEXT, nights INTEGER
+    )''')
+    
+    # دالة ذكية لإضافة الأعمدة الناقصة لتجنب الأخطاء
+    columns = [
+        ('companions', 'TEXT'),
+        ('minor_auth', 'TEXT')
+    ]
+    for col_name, col_type in columns:
+        try:
+            c.execute(f"ALTER TABLE current_guests ADD COLUMN {col_name} {col_type}")
+        except:
+            pass # العمود موجود مسبقاً
+            
+    conn.commit()
+    conn.close()
 
 init_db()
 
 # ────────────────────────────────────────────────
-#               3. الدوال المساعدة (الذكاء البرمجي)
+#               3. الدوال المساعدة
 # ────────────────────────────────────────────────
 def calculate_age(birth_date):
     today = date.today()
@@ -99,14 +109,14 @@ if not st.session_state.auth:
     st.stop()
 
 # ────────────────────────────────────────────────
-#               5. الواجهة الرئيسية والتبويبات
+#               5. الواجهة الرئيسية
 # ────────────────────────────────────────────────
 st.markdown('<div class="main-title">🏢 إدارة بيت الشباب محمدي يوسف - قالمة</div>', unsafe_allow_html=True)
 
-# تعريف التبويبات (هنا نحل مشكلة NameError)
+# تعريف التبويبات بشكل صحيح لمنع NameError
 tabs = st.tabs(["➕ حجز جديد", "📊 حالة الغرف", "📋 السجلات"])
 
-# --- التبويب الأول: حجز جديد (تنسيق رضا المطور) ---
+# --- التبويب الأول: حجز جديد ---
 with tabs[0]:
     if st.session_state.get('booking_success'):
         st.markdown('<div class="success-box"><h3>🎉 تم تسجيل الحجز بنجاح!</h3></div>', unsafe_allow_html=True)
@@ -114,10 +124,10 @@ with tabs[0]:
             st.session_state.booking_success = False; st.rerun()
     else:
         st.markdown('<div class="section-box"><h4>🔍 تسجيل حجز جديد</h4></div>', unsafe_allow_html=True)
-        search_id = st.text_input("🪪 ابحث برقم الوثيقة لنزيل سابق:", placeholder="اكتب الرقم لملء البيانات...")
+        search_id = st.text_input("🪪 ابحث برقم الوثيقة لنزيل سابق:", placeholder="اكتب الرقم هنا...")
         old_guest = get_old_guest(search_id) if search_id else None
 
-        with st.form("professional_booking_form"):
+        with st.form("pro_booking_form"):
             st.markdown("##### 👤 معلومات النزيل")
             name = st.text_input("الاسم واللقب الكامل", value=old_guest[0] if old_guest else "")
             
@@ -142,7 +152,6 @@ with tabs[0]:
                 phone = st.text_input("📞 رقم الهاتف", value=old_guest[5] if old_guest else "")
                 addr = st.text_input("🏠 العنوان الكامل", value=old_guest[3] if old_guest else "")
 
-            # منطق الأجانب والقاصرين
             age = calculate_age(bday)
             is_foreigner = nationality != "جزائرية"
             entry_date = None
@@ -173,7 +182,6 @@ with tabs[0]:
             if vacant_beds:
                 bed = st.radio("🛏️ السرير الشاغر المتاح:", vacant_beds, horizontal=True)
                 current_time = datetime.datetime.now().strftime("%H:%M")
-                st.caption(f"🕒 توقيت التسجيل: {current_time}")
                 
                 if st.form_submit_button("💾 تأكيد وحفظ الحجز", type="primary", use_container_width=True):
                     out_date = date.today() + timedelta(days=nights)
@@ -184,9 +192,9 @@ with tabs[0]:
                         (name, str(bday), bplace, addr, id_type, id_num, nationality, str(entry_date) if entry_date else None, wing, room, bed, str(date.today()), current_time, str(out_date), job, phone, companions, minor_auth, nights))
                     st.session_state.booking_success = True; st.rerun()
             else:
-                st.error("⚠️ الغرفة ممتلئة تماماً!"); st.form_submit_button("💾 تأكيد وحفظ الحجز", disabled=True)
+                st.error("⚠️ الغرفة ممتلئة!"); st.form_submit_button("💾 حفظ", disabled=True)
 
-# --- التبويب الثاني: حالة الغرف (تنسيق بصري) ---
+# --- التبويب الثاني: حالة الغرف ---
 with tabs[1]:
     st.markdown('<div class="section-box"><h4>📊 خريطة توزيع الأسرة</h4></div>', unsafe_allow_html=True)
     with sqlite3.connect(DB_FILE) as conn:
@@ -203,9 +211,5 @@ with tabs[1]:
                     is_occ = booked[(booked['wing']==w) & (booked['room']==r_name) & (booked['bed']==str(b))]
                     color = "occupied" if not is_occ.empty else "free"
                     st.markdown(f'<div class="bed-box {color}" title="{is_occ["name"].iloc[0] if not is_occ.empty else "شاغر"}">{b}</div>', unsafe_allow_html=True)
-
-# --- التبويب الثالث: السجلات ---
-with tabs[2]:
-    st.info("سيتم ربط هذا التبويب لاحقاً بجداول الإحصائيات الشاملة.")
 
 st.markdown('<div class="developer-footer">Developer ®ridha_merzoug® [رضا مرزوق] - 2026</div>', unsafe_allow_html=True)
