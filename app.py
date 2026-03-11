@@ -1,165 +1,272 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
+import sqlite3
+import os
 
-# 1. إعدادات الصفحة والتصميم
-st.set_page_config(page_title="منظومة محمدي يوسف V2.6", layout="wide")
+# ==================== إعداد الصفحة والتنسيق ====================
+st.set_page_config(page_title="بيت شباب محمدي يوسف قالمة", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
     * { font-family: 'Cairo', sans-serif; direction: RTL; text-align: right; }
-    .main-title { background: linear-gradient(135deg, #001f3f, #0074D9); color: white; padding: 1rem; border-radius: 15px; text-align: center; margin-bottom:10px; }
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] { background-color: #f0f2f6; border-radius: 10px 10px 0 0; padding: 10px 25px; font-weight: bold; }
-    .stTabs [aria-selected="true"] { background-color: #0074D9 !important; color: white !important; }
-    .stat-card { background: #f0f7ff; padding: 10px; border-radius: 12px; border: 1px solid #b3d7ff; text-align: center; }
-    .form-section { background: #ffffff; padding: 20px; border-radius: 15px; border-right: 8px solid #0074D9; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    .main-title { background: linear-gradient(90deg, #1e3c72, #2a5298); color: white; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; font-size: 1.3rem; font-weight: bold; }
+    .bed-box { display: inline-block; width: 40px; height: 35px; margin: 3px; border-radius: 5px; text-align: center; line-height: 35px; color: white; font-size: 0.8rem; font-weight: bold; }
+    .free { background-color: #28a745; }
+    .occupied { background-color: #dc3545; }
+    .wing-header { background-color: #f1f3f5; padding: 10px; border-radius: 8px; margin-top: 15px; border-right: 5px solid #1e3c72; font-weight: bold; }
+    .developer-footer { background: #1e3c72; color: #ffffff; padding: 8px; border-radius: 10px; text-align: center; margin-top: 40px; font-size: 0.75rem; }
     </style>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-# 2. إدارة قاعدة البيانات
-DB_FILE = "hostel_pro_v2_2026.db"
-TOTAL_BEDS_PER_WING = 38
+# ==================== قاعدة البيانات SQLite ====================
+DB_FILE = "biet_chabab.db"
+
+def get_conn():
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
 
 def init_db():
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS guests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, b_date TEXT, b_place TEXT,
-            address TEXT, id_type TEXT, id_num TEXT UNIQUE, nationality TEXT, 
-            visa_date TEXT, visa_expiry TEXT, job TEXT, phone TEXT, note TEXT, 
-            companions TEXT, num_comps INTEGER, minor_doc TEXT, wing TEXT, 
-            room TEXT, bed TEXT, status TEXT DEFAULT 'مقيم', check_in TEXT
-        )''')
-
-def get_available_beds(wing, room):
-    all_beds = [f"سرير {i:02d}" for i in range(1, 7)]
-    with sqlite3.connect(DB_FILE) as conn:
-        occupied = [r[0] for r in conn.execute("SELECT bed FROM guests WHERE wing=? AND room=? AND status='مقيم'", (wing, room)).fetchall()]
-    return [b for b in all_beds if b not in occupied]
-
-def get_resident_info(id_num):
-    with sqlite3.connect(DB_FILE) as conn:
-        return conn.execute("SELECT name, wing, room, bed FROM guests WHERE id_num=? AND status='مقيم'", (id_num,)).fetchone()
-
-def get_wing_occupancy(wing):
-    with sqlite3.connect(DB_FILE) as conn:
-        res = conn.execute("SELECT COUNT(*) FROM guests WHERE wing=? AND status='مقيم'", (wing,)).fetchone()
-        return res[0] if res else 0
+    conn = get_conn()
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS bookings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            الاسم_واللقب TEXT,
+            تاريخ_الازدياد TEXT,
+            العنوان TEXT,
+            رقم_البطاقة TEXT,
+            المهنة TEXT,
+            الجناح TEXT,
+            الغرفة TEXT,
+            السرير TEXT,
+            تاريخ_الدخول DATE,
+            تاريخ_الخروج DATE
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
 init_db()
 
-# --- الواجهة الرئيسية ---
-st.markdown('<div class="main-title">🏢 منظومة بيت الشباب محمدي يوسف - الإدارة الذكية</div>', unsafe_allow_html=True)
+def load_db():
+    conn = get_conn()
+    df = pd.read_sql_query("SELECT * FROM bookings", conn)
+    conn.close()
+    return df
 
-# أشرطة الإحصائيات العلوية
-occ_m = get_wing_occupancy("جناح ذكور")
-occ_f = get_wing_occupancy("جناح إناث")
+def save_booking(data_dict):
+    conn = get_conn()
+    pd.DataFrame([data_dict]).to_sql("bookings", conn, if_exists="append", index=False)
+    conn.close()
 
-c_s1, c_s2, c_s3 = st.columns(3)
-c_s1.markdown(f'<div class="stat-card">🏨 إجمالي الأسرّة<br><h3>76</h3></div>', unsafe_allow_html=True)
-c_s2.markdown(f'<div class="stat-card">♂️ شاغر ذكور<br><h3 style="color:green;">{TOTAL_BEDS_PER_WING - occ_m}</h3></div>', unsafe_allow_html=True)
-c_s3.markdown(f'<div class="stat-card">♀️ شاغر إناث<br><h3 style="color:green;">{TOTAL_BEDS_PER_WING - occ_f}</h3></div>', unsafe_allow_html=True)
+def delete_booking(bid):
+    conn = get_conn()
+    conn.execute("DELETE FROM bookings WHERE id = ?", (bid,))
+    conn.commit()
+    conn.close()
 
-# إنشاء التبويبات
-tab1, tab2 = st.tabs(["📝 حجز جديد (Tab 1)", "📋 السجلات والإدارة (Tab 2)"])
+def update_db(edited_df):
+    conn = get_conn()
+    edited_df.to_sql("bookings", conn, if_exists="replace", index=False)
+    conn.close()
 
-# --- التبويب الأول: الحجز الجديد ---
-with tab1:
-    with st.expander("🔍 استرجاع بيانات نزيل سابق"):
-        s_id = st.text_input("رقم الهوية للبحث")
-        if st.button("تعبئة تلقائية"):
-            with sqlite3.connect(DB_FILE) as conn:
-                old = conn.execute("SELECT * FROM guests WHERE id_num=? ORDER BY id DESC LIMIT 1", (s_id,)).fetchone()
-                if old:
-                    st.session_state.k_name, st.session_state.k_nat = old[1], old[7]
-                    st.session_state.k_addr, st.session_state.k_job = old[4], old[10]
-                    st.session_state.k_phone = old[11]
-                    st.success("✅ تم العثور على البيانات")
+# ==================== البيانات الأساسية ====================
+wings = {
+    "جناح ذكور": {"غرفة 01": 6, "غرفة 02": 6, "غرفة 03": 6, "غرفة 04": 6, "غرفة 05": 6, "مرقد ذكور 01": 3, "مرقد ذكور 02": 4},
+    "جناح إناث": {"غرفة 06": 2, "غرفة 07": 6, "غرفة 08": 6, "غرفة 09": 6, "مرقد إناث 01": 3, "مرقد إناث 02": 4}
+}
 
-    st.markdown('<div class="form-section">', unsafe_allow_html=True)
-    name = st.text_input("👤 الاسم واللقب الكامل *", key="k_name")
-    
-    col1, col2 = st.columns(2)
-    b_date = col1.date_input("📅 تاريخ الميلاد", min_value=date(1940, 1, 1), key="k_bdate")
-    b_place = col2.text_input("📍 مكان الازدياد", key="k_bplace")
-    
-    address = st.text_input("🏠 العنوان الكامل", key="k_addr")
-    
-    col3, col4 = st.columns(2)
-    id_type = col3.selectbox("📄 الوثيقة", ["بطاقة بيومترية", "بطاقة عادية", "رخصة سياقة", "جواز سفر", "أخرى"], key="k_idtype")
-    id_num = col4.text_input("🔢 رقم الوثيقة *", key="k_idnum")
+total_beds = sum(sum(rooms.values()) for rooms in wings.values())
 
-    # فحص التكرار اللحظي
-    if id_num:
-        res = get_resident_info(id_num)
-        if res: st.error(f"🚨 تنبيه: النزيل ({res[0]}) مقيم حالياً في {res[1]} - {res[2]}")
+# ==================== الجلسة ====================
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'user_role' not in st.session_state:
+    st.session_state.user_role = None
+if 'passwords' not in st.session_state:
+    st.session_state.passwords = {"مدير": "1234", "عون استقبال": "5678"}
 
-    col5, col6 = st.columns(2)
-    nat_choice = col5.selectbox("🇩🇿 الجنسية", ["جزائرية", "تونسية", "مغربية", "ليبية", "فرنسية", "أخرى"], key="k_nat_choice")
-    nat = col5.text_input("الجنسية يدوياً", key="k_nat_manual") if nat_choice == "أخرى" else nat_choice
+# ==================== بوابة الدخول ====================
+if not st.session_state.authenticated:
+    st.markdown('<div class="main-title">®® برنامج بيت الشباب محمدي يوسف قالمة®®</div>', unsafe_allow_html=True)
+    with st.container():
+        st.subheader("🔐 الدخول للنظام")
+        role = st.selectbox("اختر الصفة", ["مدير", "عون استقبال"])
+        pwd = st.text_input("كلمة السر", type="password")
+        if st.button("تسجيل الدخول", use_container_width=True):
+            if pwd == st.session_state.passwords[role]:
+                st.session_state.authenticated = True
+                st.session_state.user_role = role
+                st.rerun()
+            else:
+                st.error("❌ كلمة السر خاطئة")
+    st.stop()
 
-    # منطق الفيزا والقاصرين
-    visa_ex = None
-    is_visa_ok = True
-    if nat != "جزائرية":
-        st.info("🛂 بيانات الفيزا")
-        v_col1, v_col2 = st.columns(2)
-        v_in = v_col1.date_input("تاريخ الدخول", key="k_v_in")
-        visa_ex = v_col2.date_input("انتهاء الفيزا", key="k_v_ex")
-        if visa_ex < date.today():
-            st.error("🚨 الفيزا منتهية! لا يمكن الحجز.")
-            is_visa_ok = False
+# ==================== الواجهة الرئيسية ====================
+st.markdown('<div class="main-title">®® برنامج بيت الشباب محمدي يوسف قالمة®®</div>', unsafe_allow_html=True)
+st.sidebar.info(f"👤 المستخدم الحالي: {st.session_state.user_role}")
 
-    age = date.today().year - b_date.year - ((date.today().month, date.today().day) < (b_date.month, b_date.day))
-    is_minor_ok = True
-    minor_doc = ""
-    if age < 18:
-        st.warning(f"⚠️ قاصر ({age} سنة)")
-        minor_doc = st.selectbox("📜 الوثيقة المبررة *", ["-- اختر --", "تصريح ابوي", "حضور الولي", "امر بمهة", "تصريح امني"], key="k_minor")
-        if minor_doc == "-- اختر --": is_minor_ok = False
+if st.sidebar.button("🚪 خروج"):
+    st.session_state.authenticated = False
+    st.rerun()
 
-    st.divider()
-    col9, col10 = st.columns(2)
-    wing = col9.selectbox("🏢 الجناح", ["جناح ذكور", "جناح إناث"], key="k_wing")
-    room = col10.selectbox("🚪 الغرفة", [f"غرفة {i:02d}" for i in range(1, 11)], key="k_room")
-    
-    beds = get_available_beds(wing, room)
-    bed = st.selectbox("🛏️ السرير", beds, key="k_bed") if beds else None
+# التبويبات
+if st.session_state.user_role == "مدير":
+    tabs = st.tabs(["➕ حجز جديد", "📊 عدد الغرف", "📋 السجل العام", "📈 الإحصائيات", "⚙️ الإعدادات"])
+else:
+    tabs = st.tabs(["➕ حجز جديد", "📊 عدد الغرف"])
 
-    can_save = is_visa_ok and is_minor_ok and name and id_num and bed and not get_resident_info(id_num)
-    
-    if st.button("تأكيد الحجز ✅", use_container_width=True, disabled=not can_save):
-        try:
-            with sqlite3.connect(DB_FILE) as conn:
-                conn.execute("""INSERT INTO guests (name, b_date, b_place, address, id_type, id_num, nationality, visa_date, visa_expiry, job, phone, companions, num_comps, minor_doc, wing, room, bed, check_in) 
-                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                             (name, str(b_date), b_place, address, id_type, id_num, nat, str(date.today()), str(visa_ex), "", "", "", 0, minor_doc, wing, room, bed, str(date.today())))
-            st.balloons(); st.success("تم الحجز بنجاح!"); st.rerun()
-        except sqlite3.IntegrityError:
-            st.error("خطأ: رقم الهوية مسجل مسبقاً.")
-    st.markdown('</div>', unsafe_allow_html=True)
+today = date.today()
 
-# --- التبويب الثاني: السجلات وإدارة الخروج ---
-with tab2:
-    st.subheader("📋 قائمة المقيمين حالياً")
-    with sqlite3.connect(DB_FILE) as conn:
-        df = pd.read_sql_query("SELECT id, name, wing, room, bed, check_in FROM guests WHERE status='مقيم'", conn)
-    
-    if df.empty:
-        st.info("لا يوجد مقيمون حالياً.")
-    else:
-        search = st.text_input("🔍 ابحث عن اسم نزيل...")
-        if search: df = df[df['name'].str.contains(search)]
+# ==================== تبويب: حجز جديد ====================
+with tabs[0]:
+    st.subheader("📝 استمارة الحجز")
+    with st.form("booking_form", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            name = st.text_input("الاسم واللقب *")
+            birth = st.text_input("تاريخ ومكان الازدياد")
+            addr = st.text_input("العنوان الكامل")
+        with c2:
+            id_info = st.text_input("رقم بطاقة التعريف")
+            job = st.text_input("المهنة")
+            wing = st.selectbox("الجناح", list(wings.keys()))
+            room = st.selectbox("الغرفة", list(wings[wing].keys()))
+            bed_options = [f"سرير {i+1}" for i in range(wings[wing][room])]
+            bed = st.selectbox("السرير", bed_options)
+            
+            arr = st.date_input("تاريخ الدخول", value=today)
+            dep = st.date_input("تاريخ الخروج", value=today + timedelta(days=1))
+            
+            nights = (dep - arr).days
+            st.info(f"عدد الأيام: **{nights}** ليلة")
+
+        submitted = st.form_submit_button("💾 حفظ الحجز", use_container_width=True)
         
-        for idx, row in df.iterrows():
-            with st.expander(f"📍 {row['name']} - {row['room']} ({row['bed']})"):
-                c_inf, c_act = st.columns([3, 1])
-                c_inf.write(f"تاريخ الدخول: {row['check_in']} | الموقع: {row['wing']}")
-                if c_act.button("تسجيل خروج 📤", key=f"out_{row['id']}"):
-                    with sqlite3.connect(DB_FILE) as conn:
-                        conn.execute("UPDATE guests SET status='غادر' WHERE id=?", (row['id'],))
+        if submitted:
+            if not name or dep <= arr:
+                st.error("❌ يرجى ملء الاسم وتأكد أن تاريخ الخروج بعد الدخول")
+            else:
+                # التحقق من التوفر
+                conn = get_conn()
+                overlap = pd.read_sql_query("""
+                    SELECT COUNT(*) as cnt FROM bookings 
+                    WHERE الجناح=? AND الغرفة=? AND السرير=? 
+                    AND تاريخ_الدخول < ? AND تاريخ_الخروج > ?
+                """, conn, params=(wing, room, bed, dep, arr))
+                conn.close()
+                
+                if overlap['cnt'].iloc[0] > 0:
+                    st.error("❌ السرير محجوز في هذه الفترة!")
+                else:
+                    new_record = {
+                        "الاسم_واللقب": name, "تاريخ_الازدياد": birth, "العنوان": addr,
+                        "رقم_البطاقة": id_info, "المهنة": job,
+                        "الجناح": wing, "الغرفة": room, "السرير": bed,
+                        "تاريخ_الدخول": arr, "تاريخ_الخروج": dep
+                    }
+                    save_booking(new_record)
+                    st.success(f"✅ تم الحجز بنجاح! (سرير {bed} - {wing})")
                     st.rerun()
 
-st.markdown("<center><h4>RIDHA MERZOUG LABS</h4></center>", unsafe_allow_html=True)
+# ==================== تبويب: عدد الغرف ====================
+with tabs[1]:
+    st.subheader("📊 حالة الأسرة والأجنحة (اليوم الحالي)")
+    for wing_name, rooms in wings.items():
+        st.markdown(f'<div class="wing-header">{wing_name}</div>', unsafe_allow_html=True)
+        for room_name, bed_count in rooms.items():
+            cols = st.columns([1, 5])
+            cols[0].write(f"**{room_name}**")
+            html = ""
+            for b in range(1, bed_count + 1):
+                b_name = f"سرير {b}"
+                # التحقق من الإشغال اليوم
+                df = load_db()
+                occupied = not df[
+                    (df['الجناح'] == wing_name) &
+                    (df['الغرفة'] == room_name) &
+                    (df['السرير'] == b_name) &
+                    (df['تاريخ_الدخول'] <= today) &
+                    (df['تاريخ_الخروج'] > today)
+                ].empty
+                status = "occupied" if occupied else "free"
+                html += f'<div class="bed-box {status}">{b}</div>'
+            cols[1].markdown(html, unsafe_allow_html=True)
+
+# ==================== تبويب: السجل العام (للمدير فقط) ====================
+if st.session_state.user_role == "مدير":
+    with tabs[2]:
+        st.subheader("📋 السجل العام")
+        df = load_db()
+        if df.empty:
+            st.info("لا توجد حجوزات بعد")
+        else:
+            # بحث
+            search = st.text_input("🔍 بحث بالاسم أو رقم البطاقة")
+            if search:
+                df = df[df['الاسم_واللقب'].str.contains(search, na=False) | 
+                       df['رقم_البطاقة'].str.contains(search, na=False)]
+            
+            edited_df = st.data_editor(
+                df, 
+                use_container_width=True, 
+                num_rows="dynamic",
+                key="data_editor"
+            )
+            
+            col1, col2, col3 = st.columns(3)
+            if col1.button("💾 حفظ التعديلات", use_container_width=True):
+                update_db(edited_df)
+                st.success("تم حفظ التعديلات")
+                st.rerun()
+            
+            if col2.button("🗑️ مسح السجل بالكامل", use_container_width=True):
+                if st.checkbox("أنا متأكد أريد مسح كل شيء"):
+                    conn = get_conn()
+                    conn.execute("DELETE FROM bookings")
+                    conn.commit()
+                    conn.close()
+                    st.success("تم المسح")
+                    st.rerun()
+            
+            if col3.button("📥 تصدير إلى Excel", use_container_width=True):
+                df.to_excel("حجوزات_بيت_الشباب.xlsx", index=False)
+                st.success("تم التصدير! الملف في مجلد التطبيق")
+
+# ==================== تبويب: الإحصائيات (جديد) ====================
+if st.session_state.user_role == "مدير":
+    with tabs[3]:
+        st.subheader("📈 لوحة الإحصائيات")
+        df = load_db()
+        
+        col1, col2, col3, col4 = st.columns(4)
+        current_guests = len(df[(df['تاريخ_الدخول'] <= today) & (df['تاريخ_الخروج'] > today)]) if not df.empty else 0
+        occupancy_rate = round((current_guests / total_beds) * 100, 1) if total_beds > 0 else 0
+        
+        col1.metric("النزلاء اليوم", current_guests, f"{occupancy_rate}% إشغال")
+        col2.metric("إجمالي الحجوزات", len(df))
+        col3.metric("إجمالي الأسرة", total_beds)
+        col4.metric("الخروجات غداً", len(df[df['تاريخ_الخروج'] == today + timedelta(days=1)]) if not df.empty else 0)
+        
+        st.markdown("### النزلاء الحاليين")
+        if not df.empty:
+            current = df[(df['تاريخ_الدخول'] <= today) & (df['تاريخ_الخروج'] > today)]
+            st.dataframe(current[['الاسم_واللقب', 'الجناح', 'الغرفة', 'السرير', 'تاريخ_الخروج']], use_container_width=True)
+
+# ==================== تبويب: الإعدادات ====================
+if st.session_state.user_role == "مدير":
+    with tabs[4]:
+        st.subheader("⚙️ إعدادات كلمات السر")
+        target = st.selectbox("تغيير كلمة سر لـ", ["مدير", "عون استقبال"])
+        new_pwd = st.text_input("كلمة السر الجديدة", type="password")
+        if st.button("تحديث كلمة السر"):
+            if new_pwd:
+                st.session_state.passwords[target] = new_pwd
+                st.success(f"تم تغيير كلمة سر {target}")
+
+# ==================== التذييل ====================
+st.markdown(f"""
+    <div class="developer-footer">
+        Developer <span style="color:#00d4ff;">®ridha_merzoug®</span> [رضا مرزوق] — النسخة المحسنة 2026
+    </div>
+    """, unsafe_allow_html=True)
