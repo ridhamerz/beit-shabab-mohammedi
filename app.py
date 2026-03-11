@@ -30,7 +30,6 @@ def get_conn():
 
 def init_db():
     conn = get_conn()
-    # جدول الحجوزات (كل الحقول الجديدة)
     conn.execute('''CREATE TABLE IF NOT EXISTS bookings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         الاسم_واللقب TEXT,
@@ -48,7 +47,6 @@ def init_db():
         تاريخ_الخروج DATE,
         الحالة_القانونية TEXT
     )''')
-    # جدول تكوين الغرف
     conn.execute('''CREATE TABLE IF NOT EXISTS rooms_config (
         wing TEXT,
         room TEXT,
@@ -57,7 +55,6 @@ def init_db():
     )''')
     conn.commit()
 
-    # إضافة البيانات الافتراضية للأجنحة (مرة واحدة فقط)
     if conn.execute("SELECT COUNT(*) FROM rooms_config").fetchone()[0] == 0:
         default_rooms = [
             ("جناح ذكور", "غرفة 01", 6), ("جناح ذكور", "غرفة 02", 6), ("جناح ذكور", "غرفة 03", 6),
@@ -124,14 +121,23 @@ today = date.today()
 
 # ==================== 1. حجز جديد ====================
 with tabs[0]:
+    # حساب الإشغال بأمان (محمي من KeyError و DataFrame فارغ) ← التعديل الوحيد هنا
     df_all = load_bookings()
-    occupied_today = df_all[
-        (pd.to_datetime(df_all['تاريخ_الدخول'], errors='coerce').dt.date <= today) & 
-        (pd.to_datetime(df_all['تاريخ_الخروج'], errors='coerce').dt.date > today)
-    ] if not df_all.empty else pd.DataFrame()
-
-    free_male = sum(wings.get("جناح ذكور", {}).values()) - len(occupied_today[occupied_today.get('الجناح') == "جناح ذكور"])
-    free_female = sum(wings.get("جناح إناث", {}).values()) - len(occupied_today[occupied_today.get('الجناح') == "جناح إناث"])
+    
+    male_occupied = 0
+    female_occupied = 0
+    
+    if not df_all.empty and 'الجناح' in df_all.columns and 'تاريخ_الدخول' in df_all.columns and 'تاريخ_الخروج' in df_all.columns:
+        occupied_today = df_all[
+            (pd.to_datetime(df_all['تاريخ_الدخول'], errors='coerce').dt.date <= today) & 
+            (pd.to_datetime(df_all['تاريخ_الخروج'], errors='coerce').dt.date > today)
+        ]
+        if not occupied_today.empty:
+            male_occupied = len(occupied_today[occupied_today['الجناح'] == "جناح ذكور"])
+            female_occupied = len(occupied_today[occupied_today['الجناح'] == "جناح إناث"])
+    
+    free_male = sum(wings.get("جناح ذكور", {}).values()) - male_occupied
+    free_female = sum(wings.get("جناح إناث", {}).values()) - female_occupied
 
     c1, c2, c3 = st.columns(3)
     c1.markdown(f'<div class="stat-card"><span class="icon-style">👨</span>شاغر (ذكور)<br><h2>{free_male}</h2></div>', unsafe_allow_html=True)
@@ -221,7 +227,7 @@ with tabs[1]:
                 html += f'<div class="bed-box {status}">{b}</div>'
             cols[1].markdown(html, unsafe_allow_html=True)
 
-# ==================== باقي التبويبات ====================
+# ==================== باقي التبويبات (بدون أي تغيير) ====================
 with tabs[2]:
     st.subheader("📋 السجل العام")
     df = load_bookings()
