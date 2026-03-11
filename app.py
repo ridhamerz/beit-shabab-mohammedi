@@ -1,4 +1,4 @@
-import streamlit as st
+نحبimport streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 import sqlite3
@@ -123,21 +123,23 @@ tabs = st.tabs([
 today = date.today()
 
 # ==================== 1. حجز جديد ====================
-with tabs[0]:
+# --- حساب الإحصائيات العلوية (محمي من الخطأ) ---
     df_all = load_bookings()
-    occupied_today = df_all[
-        (pd.to_datetime(df_all['تاريخ_الدخول'], errors='coerce').dt.date <= today) & 
-        (pd.to_datetime(df_all['تاريخ_الخروج'], errors='coerce').dt.date > today)
-    ] if not df_all.empty else pd.DataFrame()
-
-    free_male = sum(wings.get("جناح ذكور", {}).values()) - len(occupied_today[occupied_today.get('الجناح') == "جناح ذكور"])
-    free_female = sum(wings.get("جناح إناث", {}).values()) - len(occupied_today[occupied_today.get('الجناح') == "جناح إناث"])
-
-    c1, c2, c3 = st.columns(3)
-    c1.markdown(f'<div class="stat-card"><span class="icon-style">👨</span>شاغر (ذكور)<br><h2>{free_male}</h2></div>', unsafe_allow_html=True)
-    c2.markdown(f'<div class="stat-card"><span class="icon-style">👩</span>شاغر (إناث)<br><h2>{free_female}</h2></div>', unsafe_allow_html=True)
-    c3.markdown(f'<div class="stat-card"><span class="icon-style">📅</span>تاريخ اليوم<br><h2>{today}</h2></div>', unsafe_allow_html=True)
     
+    if not df_all.empty:
+        occupied_today = df_all[
+            (pd.to_datetime(df_all['تاريخ_الدخول'], errors='coerce').dt.date <= today) & 
+            (pd.to_datetime(df_all['تاريخ_الخروج'], errors='coerce').dt.date > today)
+        ]
+        # حساب المحجوزين بأمان
+        male_occupied = len(occupied_today[occupied_today['الجناح'] == "جناح ذكور"]) if not occupied_today.empty and 'الجناح' in occupied_today.columns else 0
+        female_occupied = len(occupied_today[occupied_today['الجناح'] == "جناح إناث"]) if not occupied_today.empty and 'الجناح' in occupied_today.columns else 0
+    else:
+        male_occupied = 0
+        female_occupied = 0
+
+    free_male = sum(wings.get("جناح ذكور", {}).values()) - male_occupied
+    free_female = sum(wings.get("جناح إناث", {}).values()) - female_occupied
     st.divider()
     
     if not st.session_state.review_mode:
