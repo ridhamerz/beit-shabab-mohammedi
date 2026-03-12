@@ -6,3 +6,4 @@ xlsxwriter
 openpyxl
 fpdf
 python-docx
+st-gsheets-connection
