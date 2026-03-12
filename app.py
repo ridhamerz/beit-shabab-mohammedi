@@ -118,7 +118,7 @@ if not st.session_state.authenticated:
         pwd = st.text_input("🔒 كلمة السر", type="password")
         if st.button("🚀 تسجيل الدخول", use_container_width=True):
             # كلمات سر مشفرة (غيّرها في الكود)
-            if role == "مدير" and hashlib.sha256(pwd.encode()).hexdigest() == "8d969eef6ecad3c701f0e1f4c5f4d8e9f2e0e1f4c5f4d8e9f2e0e1f4c5f4d8e9f2":  #1234
+            if role == "مدير" and hashlib.sha256(pwd.encode()).hexdigest() == "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4":  #1234
                 st.session_state.authenticated = True
                 st.session_state.role = role
                 st.rerun()
