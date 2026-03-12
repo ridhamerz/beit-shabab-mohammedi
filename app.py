@@ -272,19 +272,19 @@ with tabs[2]:
             (pd.to_datetime(df_bookings['check_out']).dt.date >= today) & 
             ((pd.to_datetime(df_bookings['check_out']).dt.date - pd.to_datetime(df_bookings['check_in']).dt.date).dt.days > 3)
         ]
-                if not long_stay.empty:
+        # سطر 275 (تأكد أن الإزاحة هنا هي 8 مسافات أو مرتين Tab)
+        if not long_stay.empty:
             with st.warning("⚠️ **تنبيه: نزلاء تجاوزوا 3 أيام متتالية:**"):
                 for _, guest in long_stay.iterrows():
                     st.write(f"🔹 النزيل: **{guest['full_name']}** (الغرفة: {guest['room']})")
 
-    # عرض الجدول النهائي الملون
+    # سطر 280 (تأكد أن الإزاحة هنا هي 4 مسافات فقط لتكون موازية لـ if search)
     if not df_filtered.empty:
         st.write("💡 أحمر: انتهى | أصفر: إقامة طويلة (> 3 أيام)")
         st.dataframe(df_filtered.style.apply(highlight_status, axis=1), use_container_width=True)
     else:
         st.info("🔍 لا توجد بيانات مطابقة للبحث.")
-
-
+        
             with st.warning("⚠️ **تنبيه: نزلاء تجاوزوا 3 أيام متتالية:**"):
                 for _, guest in long_stay.iterrows():
                     st.write(f"🔹 النزيل: **{guest['full_name']}** (الغرفة: {guest['room']})")
