@@ -155,7 +155,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 tabs = st.tabs(["➕ حجز جديد", "🛌 حالة الغرف", "📋 السجل العام", "📄 تصدير Word", "💰 الحسابات"])
-df_bookings = pd.read_sql("SELECT * * FROM bookings", get_db())
+df_bookings = pd.read_sql("SELECT  * FROM bookings", get_db())
 df_rooms = pd.read_sql("SELECT * FROM rooms_config", get_db())
 today = date.today()
 
