@@ -241,10 +241,10 @@ with tabs[1]:
                 cols[i].markdown(f'<div class="bed-box {color_class}">{bed_name}</div>', unsafe_allow_html=True)
 
 # ==================== تبويب 3: السجل العام (مع بحث + حذف + تعديل) ====================
-    
-          with tabs[2]:
-        st.subheader("📋 السجل العام مع تنبيهات الإقامة")
+    with tabs[2]:
+        st.subheader("📋 السجل العام وتنبيهات الإقامة")
         
+        # 1. أدوات البحث
         search = st.text_input("🔍 ابحث بالاسم أو رقم البطاقة")
         show_expired_only = st.checkbox("🚩 عرض المنتهية إقامتهم فقط")
         
@@ -257,42 +257,35 @@ with tabs[1]:
         if show_expired_only:
             df_filtered = df_filtered[pd.to_datetime(df_filtered['check_out']).dt.date < today]
 
+        # 2. دالة التنسيق الملون
         def highlight_status(row):
             try:
-                start = pd.to_datetime(row['check_in']).date()
                 end = pd.to_datetime(row['check_out']).date()
-                duration = (end - start).days
+                start = pd.to_datetime(row['check_in']).date()
                 if end < today:
                     return ['background-color: #ffcccc; color: black'] * len(row)
-                elif duration > 3:
+                elif (end - start).days > 3:
                     return ['background-color: #fff3cd; color: black'] * len(row)
             except: pass
             return [''] * len(row)
 
+        # 3. إظهار التنبيهات النصية
         if not df_bookings.empty:
             long_stay = df_bookings[
                 (pd.to_datetime(df_bookings['check_out']).dt.date >= today) & 
                 ((pd.to_datetime(df_bookings['check_out']).dt.date - pd.to_datetime(df_bookings['check_in']).dt.date).dt.days > 3)
             ]
             if not long_stay.empty:
-                with st.warning("⚠️ تنبيه: نزلاء تجاوزوا 3 أيام متتالية:"):
+                with st.warning("⚠️ تنبيه: إقامات تجاوزت 3 أيام:"):
                     for _, guest in long_stay.iterrows():
-                        st.write(f"🔹 النزيل: **{guest['full_name']}** (الغرفة: {guest['room']})")
+                        st.write(f"🔹 {guest['full_name']} (غرفة: {guest['room']})")
 
+        # 4. عرض الجدول النهائي
         if not df_filtered.empty:
-            st.write("💡 أحمر: انتهى | أصفر: إقامة طويلة (> 3 أيام)")
+            st.write("💡 أحمر: منتهي | أصفر: > 3 أيام")
             st.dataframe(df_filtered.style.apply(highlight_status, axis=1), use_container_width=True)
         else:
-            st.info("🔍 لا توجد بيانات مطابقة للبحث.")
-  
-                    st.write(f"🔹 النزيل: **{guest['full_name']}** (الغرفة: {guest['room']})")
-
-    # 3. عرض الجدول النهائي الملون
-    if not df_filtered.empty:
-        st.write("💡 أحمر: انتهى | أصفر: إقامة طويلة (> 3 أيام)")
-        st.dataframe(df_filtered.style.apply(highlight_status, axis=1), use_container_width=True)
-    else:
-        st.info("🔍 لا توجد بيانات مطابقة للبحث.")
+            st.info("🔍 لا توجد بيانات حالياً.")
 
         if col_edit.button("✏️ تعديل الحجز المحدد"):
             st.info("سيتم إضافة خاصية التعديل الكاملة في التحديث القادم قريبًا إن شاء الله")
