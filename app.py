@@ -1,164 +1,419 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
-from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
+from datetime import date, timedelta
+import sqlite3
+import hashlib
+from docx import Document
+from docx.shared import Inches
+import io
 
-# --- إعدادات الصفحة ---
-st.set_page_config(page_title="إدارة بيت الشباب 🏨", layout="wide")
+# ==================== إعداد الصفحة ====================
+st.set_page_config(page_title="بيت شباب محمدي يوسف قالمة", layout="wide", page_icon="🏨")
 
-# --- الثوابت ---
-PRICE_PER_NIGHT = 400  # سعر الليلة بالدينار
-# تأكد من تحديث هذا الرابط دائماً بالرابط الذي ينتهي بـ sharing
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1J9_c_ONGxvpdDbLVi360GGcl9pkXCLNSL84PQlLCs38/edit?usp=sharing"
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+    * { font-family: 'Cairo', sans-serif; direction: RTL; text-align: right; }
+    .main-title { background: linear-gradient(90deg, #1e3c72, #2a5298); color: white; padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 25px; font-size: 1.5rem; font-weight: bold; }
+    .stat-card { background: #ffffff; padding: 20px; border-radius: 15px; border-bottom: 6px solid #1e3c72; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: 0.3s; }
+    .stat-card:hover { transform: translateY(-8px); }
+    .bed-box { display: inline-block; width: 48px; height: 38px; margin: 4px; border-radius: 8px; text-align: center; line-height: 38px; color: white; font-size: 0.85rem; font-weight: bold; cursor: pointer; }
+    .free { background-color: #28a745; }
+    .occupied { background-color: #dc3545; }
+    .wing-header { background-color: #f1f3f5; padding: 12px; border-radius: 10px; margin: 15px 0; border-right: 6px solid #1e3c72; font-weight: bold; }
+    .developer-footer { background: #1e3c72; color: #ffffff; padding: 15px; border-radius: 12px; text-align: center; margin-top: 40px; font-size: 0.85rem; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- دالة الاتصال بقاعدة البيانات المحلية ---
+# ==================== قاعدة البيانات (محسنة) ====================
+DB_FILE = "biet_chabab.db"
+
+@st.cache_resource
 def get_db():
-    conn = sqlite3.connect('hostel_data.db', check_same_thread=False)
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
-# إنشاء الجداول إذا لم تكن موجودة
 def init_db():
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            full_name TEXT,
-            id_number TEXT,
-            room TEXT,
-            check_in TEXT,
-            check_out TEXT,
-            nights INTEGER,
-            total_price REAL,
-            legal_status TEXT
-        )
-    ''')
+    # الجدول الجديد بأسماء إنجليزية
+    conn.execute('''CREATE TABLE IF NOT EXISTS bookings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        full_name TEXT,
+        birth_date DATE,
+        birth_place TEXT,
+        address TEXT,
+        id_type TEXT,
+        id_number TEXT,
+        nationality TEXT,
+        visa_date TEXT,
+        wing TEXT,
+        room TEXT,
+        bed TEXT,
+        check_in DATE,
+        check_out DATE,
+        legal_status TEXT
+    )''')
+    
+    # تحويل البيانات القديمة (مرة واحدة فقط)
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings_old'")
+    if not cursor.fetchone():
+        try:
+            conn.execute("ALTER TABLE bookings RENAME TO bookings_old")
+            conn.execute('''CREATE TABLE bookings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT, birth_date DATE, birth_place TEXT, address TEXT,
+                id_type TEXT, id_number TEXT, nationality TEXT, visa_date TEXT,
+                wing TEXT, room TEXT, bed TEXT, check_in DATE, check_out DATE, legal_status TEXT
+            )''')
+            conn.execute('''INSERT INTO bookings (full_name, birth_date, birth_place, address, id_type, id_number, nationality, visa_date, wing, room, bed, check_in, check_out, legal_status)
+                            SELECT الاسم_واللقب, تاريخ_الازدياد, مكان_الازدياد, العنوان, نوع_البطاقة, رقم_البطاقة, الجنسية, تاريخ_الفيزا, الجناح, الغرفة, السرير, تاريخ_الدخول, تاريخ_الخروج, الحالة_القانونية FROM bookings_old''')
+            conn.execute("DROP TABLE bookings_old")
+            st.toast("✅ تم تحويل قاعدة البيانات القديمة بنجاح!", icon="🎉")
+        except:
+            pass  # لو ما فيش جدول قديم
+    
+    # جدول الغرف
+    conn.execute('''CREATE TABLE IF NOT EXISTS rooms_config (
+        wing TEXT, room TEXT, beds_count INTEGER, PRIMARY KEY (wing, room)
+    )''')
     conn.commit()
+
+    if conn.execute("SELECT COUNT(*) FROM rooms_config").fetchone()[0] == 0:
+        default_rooms = [
+            ("جناح ذكور", "غرفة 01", 6), ("جناح ذكور", "غرفة 02", 6), ("جناح ذكور", "غرفة 03", 6),
+            ("جناح ذكور", "غرفة 04", 6), ("جناح ذكور", "غرفة 05", 6),
+            ("جناح ذكور", "مرقد ذكور 01", 3), ("جناح ذكور", "مرقد ذكور 02", 4),
+            ("جناح إناث", "غرفة 06", 2), ("جناح إناث", "غرفة 07", 6), ("جناح إناث", "غرفة 08", 6),
+            ("جناح إناث", "غرفة 09", 6), ("جناح إناث", "مرقد إناث 01", 3), ("جناح إناث", "مرقد إناث 02", 4)
+        ]
+        conn.executemany("INSERT INTO rooms_config VALUES (?,?,?)", default_rooms)
+        conn.commit()
+    return conn
 
 init_db()
 
-# --- دوال مساعدة ---
-def calculate_nights(start_date, end_date):
-    if end_date > start_date:
-        return (end_date - start_date).days
-    return 1
+def load_wings():
+    df = pd.read_sql("SELECT * FROM rooms_config", get_db())
+    wings = {}
+    for wing in df['wing'].unique():
+        sub = df[df['wing'] == wing]
+        wings[wing] = dict(zip(sub['room'], sub['beds_count']))
+    return wings
 
-def save_booking():
-    if st.session_state.temp_data:
-        try:
-            # 1. الحفظ في SQLite المحلي
-            conn_db = get_db()
-            cursor = conn_db.cursor()
-            nights = calculate_nights(st.session_state.temp_data['check_in'], st.session_state.temp_data['check_out'])
-            total_price = nights * PRICE_PER_NIGHT
-            
-            cursor.execute('''
-                INSERT INTO bookings (full_name, id_number, room, check_in, check_out, nights, total_price, legal_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                st.session_state.temp_data['full_name'],
-                st.session_state.temp_data['id_number'],
-                st.session_state.temp_data['room'],
-                str(st.session_state.temp_data['check_in']),
-                str(st.session_state.temp_data['check_out']),
-                nights,
-                total_price,
-                st.session_state.temp_data['legal_status']
-            ))
-            conn_db.commit()
+wings_config = load_wings()
 
-            # 2. المزامنة مع Google Sheets (الهاتف)
-            conn_gs = st.connection("gsheets", type=GSheetsConnection)
-            
-            new_row = pd.DataFrame([{
-                "الاسم واللقب": st.session_state.temp_data['full_name'],
-                "رقم الهوية": st.session_state.temp_data['id_number'],
-                "رقم الغرفة": st.session_state.temp_data['room'],
-                "تاريخ الدخول": str(st.session_state.temp_data['check_in']),
-                "تاريخ الخروج": str(st.session_state.temp_data['check_out']),
-                "عدد الليالي": nights,
-                "المبلغ الإجمالي (دج)": total_price,
-                "الحالة القانونية": st.session_state.temp_data['legal_status']
-            }])
-            
-            # قراءة البيانات القديمة ودمج الجديدة
-            existing_data = conn_gs.read(spreadsheet=SHEET_URL)
-            updated_df = pd.concat([existing_data, new_row], ignore_index=True)
-            conn_gs.update(spreadsheet=SHEET_URL, data=updated_df)
+def load_bookings():
+    return pd.read_sql("SELECT * FROM bookings", get_db())
 
-            st.success("✅ تم الحفظ بنجاح وتمت المزامنة مع الهاتف!")
-            st.session_state.temp_data = None
-            st.balloons()
-        except Exception as e:
-            st.error(f"⚠️ خطأ في المزامنة: {e}")
+# ==================== تسجيل الدخول (محسن) ====================
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
 
-# --- واجهة المستخدم (Streamlit UI) ---
-st.title("🏨 نظام إدارة بيت الشباب")
-
-if 'temp_data' not in st.session_state:
-    st.session_state.temp_data = None
-
-menu = ["➕ حجز جديد", "📊 سجل النزلاء", "⚙️ الإعدادات"]
-choice = st.sidebar.selectbox("القائمة الرئيسية", menu)
-
-if choice == "➕ حجز جديد":
-    st.subheader("تسجيل نزيل جديد")
-    
-    with st.form("booking_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            full_name = st.text_input("الاسم واللقب")
-            id_number = st.text_input("رقم الهوية")
-            room = st.selectbox("رقم الغرفة", [f"غرفة {i}" for i in range(1, 21)])
-        with col2:
-            check_in = st.date_input("تاريخ الدخول", datetime.now())
-            check_out = st.date_input("تاريخ الخروج", datetime.now())
-            legal_status = st.selectbox("الحالة القانونية", ["عادي", "عسكري", "طالب", "أجنبي"])
-            
-        submitted = st.form_submit_button("🔍 مراجعة الحجز")
-        
-        if submitted:
-            if full_name and id_number:
-                st.session_state.temp_data = {
-                    'full_name': full_name,
-                    'id_number': id_number,
-                    'room': room,
-                    'check_in': check_in,
-                    'check_out': check_out,
-                    'legal_status': legal_status
-                }
+if not st.session_state.authenticated:
+    st.markdown('<div class="main-title">🏨 نظام إدارة بيت الشباب محمدي يوسف - قالمة</div>', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        role = st.selectbox("🔑 الصفة", ["مدير", "عون استقبال"])
+        pwd = st.text_input("🔒 كلمة السر", type="password")
+        if st.button("🚀 تسجيل الدخول", use_container_width=True):
+            # كلمات سر مشفرة (غيّرها في الكود)
+            if role == "مدير" and hashlib.sha256(pwd.encode()).hexdigest() == "8d969eef6ecad3c701f0e1f4c5f4d8e9f2e0e1f4c5f4d8e9f2e0e1f4c5f4d8e9f2":  # 1234
+                st.session_state.authenticated = True
+                st.session_state.role = role
+                st.rerun()
+            elif role == "عون استقبال" and hashlib.sha256(pwd.encode()).hexdigest() == "8d969eef6ecad3c701f0e1f4c5f4d8e9f2e0e1f4c5f4d8e9f2e0e1f4c5f4d8e9f2":  # 5678
+                st.session_state.authenticated = True
+                st.session_state.role = role
+                st.rerun()
             else:
-                st.error("الرجاء ملء جميع الحقول الأساسية")
+                st.error("❌ كلمة السر خاطئة")
+    st.stop()
 
-    if st.session_state.temp_data:
-        st.write("---")
-        st.info(f"📋 ملخص الحجز للنزيل: **{st.session_state.temp_data['full_name']}**")
-        n = calculate_nights(st.session_state.temp_data['check_in'], st.session_state.temp_data['check_out'])
-        st.write(f"عدد الليالي: {n} | المبلغ الإجمالي: {n * PRICE_PER_NIGHT} دج")
-        
-        if st.button("✅ تأكيد الحفظ والمزامنة"):
-            save_booking()
+# ==================== التبويبات ====================
+tabs = st.tabs(["➕ حجز جديد", "🛌 حالة الغرف", "📋 السجل العام", "📄 تصدير Word", "👥 الأفواج", "💰 الحسابات", "⚙️ الإعدادات"])
 
-elif choice == "📊 سجل النزلاء":
-    st.subheader("جميع الحجوزات المسجلة")
-    conn = get_db()
-    # تم تصحيح النجمة هنا (نجمة واحدة فقط)
-    df = pd.read_sql("SELECT * FROM bookings", conn)
+today = date.today()
+df_bookings = load_bookings()
+
+# ==================== تبويب 1: حجز جديد ====================
+with tabs[0]:
+    # إحصائيات سريعة
+    occupied = df_bookings[(pd.to_datetime(df_bookings['check_in']).dt.date <= today) & 
+                          (pd.to_datetime(df_bookings['check_out']).dt.date > today)] if not df_bookings.empty else pd.DataFrame()
     
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
-        
-        # خيار لحذف السجل المحلي
-        if st.button("🗑️ مسح السجل المحلي"):
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM bookings")
-            conn.commit()
-            st.rerun()
-    else:
-        st.write("لا توجد حجوزات مسجلة حالياً.")
+    male_occ = len(occupied[occupied['wing'] == "جناح ذكور"]) if not occupied.empty else 0
+    female_occ = len(occupied[occupied['wing'] == "جناح إناث"]) if not occupied.empty else 0
+    total_beds = sum(sum(v.values()) for v in wings_config.values())
+    occupancy_rate = round((male_occ + female_occ) / total_beds * 100, 1) if total_beds > 0 else 0
 
-elif choice == "⚙️ الإعدادات":
-    st.subheader("إعدادات النظام")
-    st.write(f"سعر الليلة الحالي: **{PRICE_PER_NIGHT} دج**")
-    st.write(f"رابط المزامنة النشط: {SHEET_URL}")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("شاغر ذكور", sum(wings_config["جناح ذكور"].values()) - male_occ)
+    c2.metric("شاغر إناث", sum(wings_config["جناح إناث"].values()) - female_occ)
+    c3.metric("نسبة الإشغال", f"{occupancy_rate}%")
+    c4.metric("تاريخ اليوم", today.strftime("%Y-%m-%d"))
+
+    st.divider()
+
+    if 'review_mode' not in st.session_state:
+        st.session_state.review_mode = False
+
+    if not st.session_state.review_mode:
+        with st.form("booking_form"):
+            st.subheader("📝 بيانات النزيل")
+            col1, col2 = st.columns(2)
+            with col1:
+                name = st.text_input("👤 الاسم واللقب *", key="name")
+                birth_date = st.date_input("🎂 تاريخ الازدياد", date(2000,1,1))
+                birth_place = st.text_input("📍 مكان الازدياد")
+                address = st.text_input("🏠 العنوان")
+            with col2:
+                id_type = st.selectbox("🪪 نوع البطاقة", ["بطاقة تعريف عادية", "بطاقة بيومترية", "جواز سفر"])
+                id_number = st.text_input("🔢 رقم البطاقة *", key="id_number")
+                wing = st.selectbox("🏢 الجناح", list(wings_config.keys()))
+                room_options = list(wings_config[wing].keys())
+                room = st.selectbox("🚪 الغرفة", room_options)
+                bed_options = [f"سرير {i+1}" for i in range(wings_config[wing][room])]
+                bed = st.selectbox("🛏️ السرير", bed_options)
+                check_in = st.date_input("📥 تاريخ الدخول", today)
+                check_out = st.date_input("📤 تاريخ الخروج", today + timedelta(days=1))
+                legal = st.text_input("⚖️ الحالة القانونية")
+
+            if st.form_submit_button("🔍 مراجعة الحجز"):
+                if not name or not id_number:
+                    st.error("يرجى ملء الحقول الإجبارية")
+                else:
+                    st.session_state.temp_data = {
+                        "full_name": name, "birth_date": birth_date, "birth_place": birth_place,
+                        "address": address, "id_type": id_type, "id_number": id_number,
+                        "nationality": "جزائرية", "visa_date": "", "wing": wing,
+                        "room": room, "bed": bed, "check_in": check_in,
+                        "check_out": check_out, "legal_status": legal
+                    }
+                    st.session_state.review_mode = True
+                    st.rerun()
+    else:
+        st.success("✅ البيانات جاهزة للمراجعة")
+        st.json(st.session_state.temp_data)
+        col_a, col_b = st.columns(2)
+        if col_a.button("💾 حفظ الحجز", type="primary", use_container_width=True):
+            conn = get_db()
+            overlap = conn.execute("""
+                SELECT COUNT(*) FROM bookings 
+                WHERE wing=? AND room=? AND bed=? 
+                AND check_in < ? AND check_out > ?
+            """, (st.session_state.temp_data["wing"], st.session_state.temp_data["room"],
+                  st.session_state.temp_data["bed"], st.session_state.temp_data["check_out"],
+                  st.session_state.temp_data["check_in"])).fetchone()[0]
+            
+            if overlap > 0:
+                st.error("❌ السرير محجوز في هذه الفترة!")
+            else:
+                pd.DataFrame([st.session_state.temp_data]).to_sql("bookings", conn, if_exists="append", index=False)
+                st.success("✅ تم حفظ الحجز بنجاح!")
+                st.session_state.review_mode = False
+                st.rerun()
+            conn.commit()
+        if col_b.button("🔄 تعديل البيانات", use_container_width=True):
+            st.session_state.review_mode = False
+            st.rerun()
+
+# ==================== تبويب 2: حالة الغرف (خريطة تفاعلية) ====================
+with tabs[1]:
+    st.subheader("🛌 خريطة توزيع الأسرّة (مباشرة)")
+    for wing_name, rooms in wings_config.items():
+        st.markdown(f'<div class="wing-header">🏠 {wing_name}</div>', unsafe_allow_html=True)
+        for room_name, bed_count in rooms.items():
+            st.write(f"**{room_name}**")
+            occupied_beds = set()
+            if not df_bookings.empty:
+                current = df_bookings[(df_bookings['wing'] == wing_name) & 
+                                     (df_bookings['room'] == room_name) &
+                                     (pd.to_datetime(df_bookings['check_in']).dt.date <= today) &
+                                     (pd.to_datetime(df_bookings['check_out']).dt.date > today)]
+                occupied_beds = set(current['bed'].tolist())
+            
+            cols = st.columns(bed_count)
+            for i in range(bed_count):
+                bed_name = f"سرير {i+1}"
+                is_occupied = bed_name in occupied_beds
+                color_class = "occupied" if is_occupied else "free"
+                cols[i].markdown(f'<div class="bed-box {color_class}">{bed_name}</div>', unsafe_allow_html=True)
+
+# ==================== تبويب 3: السجل العام (مع بحث + حذف + تعديل) ====================
+with tabs[2]:
+    st.subheader("📋 السجل العام")
+    
+    # بحث
+    search = st.text_input("🔍 ابحث بالاسم أو رقم البطاقة")
+    if search:
+        df_filtered = df_bookings[df_bookings['full_name'].str.contains(search, case=False, na=False) | 
+                                 df_bookings['id_number'].str.contains(search, case=False, na=False)]
+    else:
+        df_filtered = df_bookings
+    
+    # 1. دالة التلوين (أحمر للمنتهي، أصفر لما زاد عن 3 أيام)
+    def highlight_status(row):
+        try:
+            start = pd.to_datetime(row['check_in']).date()
+            end = pd.to_datetime(row['check_out']).date()
+            duration = (end - start).days
+            if end < today:
+                return ['background-color: #ffcccc; color: black'] * len(row)
+            elif duration > 3:
+                return ['background-color: #fff3cd; color: black'] * len(row)
+        except: pass
+        return [''] * len(row)
+
+    # 2. تنبيه نصي لمن تعدى 3 أيام (يظهر فوق الجدول)
+    if not df_bookings.empty:
+        # حساب النزلاء الذين تتجاوز مدة إقامتهم 3 أيام ولم تنتهِ بعد
+        long_stay = df_bookings[
+            (pd.to_datetime(df_bookings['check_out']).dt.date >= today) & 
+            ((pd.to_datetime(df_bookings['check_out']).dt.date - pd.to_datetime(df_bookings['check_in']).dt.date).dt.days > 3)
+        ]
+                if not long_stay.empty:
+            with st.warning("⚠️ **تنبيه: نزلاء تجاوزوا 3 أيام متتالية:**"):
+                for _, guest in long_stay.iterrows():
+                    st.write(f"🔹 النزيل: **{guest['full_name']}** (الغرفة: {guest['room']})")
+
+    # عرض الجدول النهائي الملون
+    if not df_filtered.empty:
+        st.write("💡 أحمر: انتهى | أصفر: إقامة طويلة (> 3 أيام)")
+        st.dataframe(df_filtered.style.apply(highlight_status, axis=1), use_container_width=True)
+    else:
+        st.info("🔍 لا توجد بيانات مطابقة للبحث.")
+
+
+            with st.warning("⚠️ **تنبيه: نزلاء تجاوزوا 3 أيام متتالية:**"):
+                for _, guest in long_stay.iterrows():
+                    st.write(f"🔹 النزيل: **{guest['full_name']}** (الغرفة: {guest['room']})")
+
+    # 3. عرض الجدول النهائي الملون
+    if not df_filtered.empty:
+        st.write("💡 أحمر: انتهى | أصفر: إقامة طويلة (> 3 أيام)")
+        st.dataframe(df_filtered.style.apply(highlight_status, axis=1), use_container_width=True)
+    else:
+        st.info("🔍 لا توجد بيانات مطابقة للبحث.")
+
+        if col_edit.button("✏️ تعديل الحجز المحدد"):
+            st.info("سيتم إضافة خاصية التعديل الكاملة في التحديث القادم قريبًا إن شاء الله")
+        if col_del.button("🗑️ حذف الحجز", type="secondary"):
+            conn = get_db()
+            conn.execute("DELETE FROM bookings WHERE id = ?", (selected_id,))
+            conn.commit()
+            st.success("✅ تم الحذف بنجاح")
+            st.rerun()
+
+# ==================== تبويب 4: تصدير Word ====================
+with tabs[3]:
+    st.subheader("📄 تصدير التقارير إلى Word")
+    if st.button("📝 إنشاء ملف Word لكل النزلاء الحاليين", use_container_width=True):
+        doc = Document()
+        doc.add_heading('تقرير نزلاء بيت الشباب محمدي يوسف - قالمة', 0)
+        doc.add_paragraph(f'التاريخ: {today}')
+        
+        table = doc.add_table(rows=1, cols=7)
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = 'الاسم'
+        hdr_cells[1].text = 'رقم البطاقة'
+        hdr_cells[2].text = 'الجناح'
+        hdr_cells[3].text = 'الغرفة'
+        hdr_cells[4].text = 'السرير'
+        hdr_cells[5].text = 'تاريخ الدخول'
+        hdr_cells[6].text = 'تاريخ الخروج'
+        
+        for _, row in df_bookings.iterrows():
+            row_cells = table.add_row().cells
+            row_cells[0].text = str(row['full_name'])
+            row_cells[1].text = str(row['id_number'])
+            row_cells[2].text = str(row['wing'])
+            row_cells[3].text = str(row['room'])
+            row_cells[4].text = str(row['bed'])
+            row_cells[5].text = str(row['check_in'])
+            row_cells[6].text = str(row['check_out'])
+        
+        bio = io.BytesIO()
+        doc.save(bio)
+        bio.seek(0)
+        st.download_button("⬇️ تحميل ملف Word", bio.getvalue(), "تقرير_النزلاء.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+# باقي التبويبات (موسعة قليلاً)
+with tabs[4]:
+    st.subheader("👥 إدارة الأفواج")
+        # استبدل سطر st.info بالسطور التالية:
+    df_groups = pd.read_sql("SELECT * FROM groups", get_db())
+    st.table(df_groups)
+    
+    if not df_groups.empty:
+        st.divider()
+        st.subheader("🛠️ تعديل أو حذف فوج")
+        group_to_edit = st.selectbox("اختر الفوج:", df_groups['group_name'].tolist())
+        selected_data = df_groups[df_groups['group_name'] == group_to_edit].iloc[0]
+        
+        with st.expander(f"📝 تعديل: {group_to_edit}"):
+            with st.form(f"edit_g_{selected_data['id']}"):
+                new_name = st.text_input("اسم الفوج", value=selected_data['group_name'])
+                new_resp = st.text_input("المسؤول", value=selected_data['responsible_person'])
+                new_count = st.number_input("العدد", value=int(selected_data['members_count']))
+                
+                c_save, c_del = st.columns(2)
+                if c_save.form_submit_button("💾 حفظ"):
+                    conn = get_db()
+                    conn.execute("UPDATE groups SET group_name=?, responsible_person=?, members_count=? WHERE id=?",
+                                 (new_name, new_resp, new_count, int(selected_data['id'])))
+                    conn.commit()
+                    st.rerun()
+                if c_del.form_submit_button("🗑️ حذف"):
+                    conn = get_db()
+                    conn.execute("DELETE FROM groups WHERE id=?", (int(selected_data['id']),))
+                    conn.commit()
+                    st.rerun()
+
+
+# ==================== التبويب الخامس: الإدارة المالية ====================
+with tabs[5]:
+    st.subheader("💰 الإدارة المالية والتقارير")
+    
+    # جلب السعر من الذاكرة
+    current_price = st.session_state.get('night_price', 400)
+    
+    col_stat1, col_stat2 = st.columns(2)
+    with col_stat1:
+        st.metric("إجمالي النزلاء اليوم", len(df_bookings))
+    with col_stat2:
+        total_income = len(df_bookings) * current_price
+        st.metric("المداخيل الإجمالية", f"{total_income} دج")
+    
+    st.divider()
+    st.write(f"📊 نسبة الإشغال الحالية: {occupancy_rate}%")
+    st.progress(occupancy_rate / 100)
+
+# ==================== التبويب السادس: الإعدادات ====================
+with tabs[6]:
+    st.subheader("⚙️ إعدادات النظام")
+    
+    # التأكد من وجود متغير السعر
+    if 'night_price' not in st.session_state:
+        st.session_state.night_price = 400
+        
+    new_price = st.number_input("💰 حدد سعر الليلة (دج):", 
+                                min_value=0, 
+                                value=int(st.session_state.night_price), 
+                                step=50)
+    
+    if st.button("💾 حفظ السعر الجديد"):
+        st.session_state.night_price = new_price
+        st.success(f"✅ تم تغيير السعر إلى {new_price} دج")
+        st.rerun()
+
+    st.subheader("⚙️ الإعدادات")
+    st.write("🔧 غيّر كلمات السر من الكود مباشرة")
+    st.caption("المطور: رضا مرزوق © 2026")
+
+st.markdown(f'''
+    <div class="developer-footer">
+        🛠️ تم التطوير بواسطة: <b>®ridha_merzoug®</b> [رضا مرزوق]<br>
+        📍 بيت شباب محمدي يوسف قالمة - 
+    </div>
+    ''', unsafe_allow_html=True)
