@@ -13,8 +13,8 @@ from streamlit_gsheets import GSheetsConnection
 MANAGER_PASSWORD = "1234"
 RECEPTION_PASSWORD = "5678"
 PRICE_PER_NIGHT = 400
-# رابط ملفك الذي أرسلته
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1IfMFMNT2UYF7OzQXU5acDJ06GtxmOFJ1d8oQYOWKwUs/edit?usp=sharing"
+# رابط ملفك الذ
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1J9_c_ONGxvpdDbLVi360GGcl9pkXCLNSL84PQlLCs38/edit?usp=sharing"
 
 st.set_page_config(page_title="بيت شباب محمدي يوسف قالمة", layout="wide", page_icon="🏨")
 
