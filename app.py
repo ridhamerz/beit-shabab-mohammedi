@@ -95,24 +95,53 @@ def generate_report_table(df):
     doc = Document()
     add_official_header_footer(doc)
     section = doc.sections[0]
-    section.orientation = 1 # لاندسكيب (عرضي)
-    section.page_width, section.page_height = section.page_height, section.page_width
-    doc.add_heading('تقرير النزلاء اليومي', 1).alignment = WD_ALIGN_PARAGRAPH.CENTER
-    table = doc.add_table(rows=1, cols=6)
-    table.style = 'Table Grid'
-    titles = ['رقم الغرفة', 'الاسم واللقب', 'تاريخ ومكان الازدياد', 'العنوان', 'عدد الليالي', 'ملاحظات']
-    widths = [Cm(2), Cm(5), Cm(5), Cm(6), Cm(2), Cm(4)]
-    for i, title in enumerate(titles):
-        cell = table.rows[0].cells[i]
-        cell.text = title
-        cell.width = widths[i]
-        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-        cell.paragraphs[0].runs[0].bold = True
-    for _, row in df.iterrows():
-        row_cells = table.add_row().cells
-        row_cells[0].text = str(row['room'])
-        row_cells[1].text = str(row['full_name'])
-        row_cells[2].text = f"{row['birth_date']} بـ {row['birth_place']}"
+    def save_booking():
+    if st.session_state.temp_data:
+        try:
+            # 1. الحفظ في قاعدة البيانات المحلية (داخل التطبيق)
+            conn_db = get_db()
+            cursor = conn_db.cursor()
+            cursor.execute('''
+                INSERT INTO bookings (full_name, id_number, room, check_in, check_out, nights, total_price, legal_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                st.session_state.temp_data['full_name'],
+                st.session_state.temp_data['id_number'],
+                st.session_state.temp_data['room'],
+                str(st.session_state.temp_data['check_in']),
+                str(st.session_state.temp_data['check_out']),
+                calculate_nights(st.session_state.temp_data['check_in'], st.session_state.temp_data['check_out']),
+                calculate_nights(st.session_state.temp_data['check_in'], st.session_state.temp_data['check_out']) * PRICE_PER_NIGHT,
+                st.session_state.temp_data['legal_status']
+            ))
+            conn_db.commit()
+
+            # 2. الحفظ والمزامنة مع Google Sheets (الهاتف)
+            conn_gs = st.connection("gsheets", type=GSheetsConnection)
+            
+            # تجهيز البيانات بنفس ترتيب الأعمدة في ملفك
+            new_row = pd.DataFrame([{
+                "الاسم واللقب": st.session_state.temp_data['full_name'],
+                "رقم الهوية": st.session_state.temp_data['id_number'],
+                "رقم الغرفة": st.session_state.temp_data['room'],
+                "تاريخ الدخول": str(st.session_state.temp_state.check_in),
+                "تاريخ الخروج": str(st.session_state.temp_state.check_out),
+                "عدد الليالي": calculate_nights(st.session_state.temp_data['check_in'], st.session_state.temp_data['check_out']),
+                "المبلغ الإجمالي (دج)": calculate_nights(st.session_state.temp_data['check_in'], st.session_state.temp_data['check_out']) * PRICE_PER_NIGHT,
+                "الحالة القانونية": st.session_state.temp_data['legal_status']
+            }])
+            
+            # إرسال البيانات للرابط
+            existing_data = conn_gs.read(spreadsheet=SHEET_URL)
+            updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+            conn_gs.update(spreadsheet=SHEET_URL, data=updated_df)
+
+            st.success("✅ تم الحفظ بنجاح وتمت المزامنة مع الهاتف!")
+            st.session_state.temp_data = None
+            st.balloons() # احتفال بسيط بنجاح العملية
+        except Exception as e:
+            st.error(f"حدث خطأ في المزامنة: {e}")
+
         row_cells[3].text = str(row['address'])
         row_cells[4].text = str(calculate_nights(row['check_in'], row['check_out']))
         row_cells[5].text = str(row['legal_status'])
