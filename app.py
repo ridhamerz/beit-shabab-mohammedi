@@ -118,7 +118,8 @@ if not st.session_state.authenticated:
         pwd = st.text_input("🔒 كلمة السر", type="password")
         if st.button("🚀 تسجيل الدخول", use_container_width=True):
             # كلمات سر مشفرة (غيّرها في الكود)
-                        if role == "مدير" and pwd == "1234":
+                        # --- استبدل المنطقة من سطر 118 إلى 133 بهذا الكود ---
+            if role == "مدير" and pwd == "1234":
                 st.session_state.authenticated = True
                 st.session_state.role = role
                 st.rerun()
@@ -127,7 +128,9 @@ if not st.session_state.authenticated:
                 st.session_state.role = role
                 st.rerun()
             else:
-                st.error("❌ كلمة السر خاطئة")
+                if pwd != "":
+                    st.error("❌ كلمة السر خاطئة")
+                    
     st.stop()
 
 # ==================== التبويبات ====================
