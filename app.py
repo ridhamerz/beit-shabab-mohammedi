@@ -300,37 +300,60 @@ with tabs[1]:
             st.rerun()
 
 # ==================== تبويب 4: تصدير Word ====================
-with tabs[3]:
-    st.subheader("📄 تصدير التقارير إلى Word")
-    if st.button("📝 إنشاء ملف Word لكل النزلاء الحاليين", use_container_width=True):
-        doc = Document()
-        doc.add_heading('تقرير نزلاء بيت الشباب محمدي يوسف - قالمة', 0)
-        doc.add_paragraph(f'التاريخ: {today}')
+    with tabs[3]:
+        st.subheader("📄 تصدير التقارير إلى Word")
         
-        table = doc.add_table(rows=1, cols=7)
-        hdr_cells = table.rows[0].cells
-        hdr_cells[0].text = 'الاسم'
-        hdr_cells[1].text = 'رقم البطاقة'
-        hdr_cells[2].text = 'الجناح'
-        hdr_cells[3].text = 'الغرفة'
-        hdr_cells[4].text = 'السرير'
-        hdr_cells[5].text = 'تاريخ الدخول'
-        hdr_cells[6].text = 'تاريخ الخروج'
-        
-        for _, row in df_bookings.iterrows():
-            row_cells = table.add_row().cells
-            row_cells[0].text = str(row['full_name'])
-            row_cells[1].text = str(row['id_number'])
-            row_cells[2].text = str(row['wing'])
-            row_cells[3].text = str(row['room'])
-            row_cells[4].text = str(row['bed'])
-            row_cells[5].text = str(row['check_in'])
-            row_cells[6].text = str(row['check_out'])
-        
-        bio = io.BytesIO()
-        doc.save(bio)
-        bio.seek(0)
-        st.download_button("⬇️ تحميل ملف Word", bio.getvalue(), "تقرير_النزلاء.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        # التأكد من وجود بيانات قبل التصدير
+        if not df_bookings.empty:
+            if st.button("📝 إنشاء ملف Word لكل النزلاء", use_container_width=True):
+                try:
+                    from docx import Document
+                    import io
+                    
+                    # إنشاء المستند
+                    doc = Document()
+                    doc.add_heading('تقرير نزلاء بيت الشباب محمدي يوسف - قالمة', 0)
+                    
+                    # بناء رأس الجدول
+                    table = doc.add_table(rows=1, cols=7)
+                    table.style = 'Table Grid' # لإضافة حدود للجدول
+                    
+                    hdr_cells = table.rows[0].cells
+                    hdr_cells[0].text = 'الاسم'
+                    hdr_cells[1].text = 'رقم البطاقة'
+                    hdr_cells[2].text = 'الجناح'
+                    hdr_cells[3].text = 'الغرفة'
+                    hdr_cells[4].text = 'السرير'
+                    hdr_cells[5].text = 'تاريخ الدخول'
+                    hdr_cells[6].text = 'تاريخ الخروج'
+                    
+                    # تعبئة الجدول ببيانات النزلاء
+                    for _, row in df_bookings.iterrows():
+                        row_cells = table.add_row().cells
+                        row_cells[0].text = str(row['full_name'])
+                        row_cells[1].text = str(row['id_number'])
+                        row_cells[2].text = str(row['wing'])
+                        row_cells[3].text = str(row['room'])
+                        row_cells[4].text = str(row['bed'])
+                        row_cells[5].text = str(row['check_in'])
+                        row_cells[6].text = str(row['check_out'])
+                    
+                    # تجهيز الملف للتحميل
+                    bio = io.BytesIO()
+                    doc.save(bio)
+                    bio.seek(0)
+                    
+                    st.success("✅ تم تجهيز الملف بنجاح!")
+                    st.download_button(
+                        label="⬇️ اضغط هنا لتحميل تقرير Word",
+                        data=bio.getvalue(),
+                        file_name="تقرير_النزلاء.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                except Exception as e:
+                    st.error(f"❌ حدث خطأ، تأكد من إضافة python-docx في ملف requirements: {e}")
+        else:
+            st.info("لا توجد بيانات حالياً لتصديرها.")
 
 # باقي التبويبات (موسعة قليلاً)
 with tabs[4]:
