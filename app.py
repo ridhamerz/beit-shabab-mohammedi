@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 import sqlite3
-import hashlib
 from docx import Document
 from docx.shared import Inches
 import io
