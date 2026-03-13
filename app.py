@@ -290,14 +290,7 @@ with tabs[1]:
         else:
             st.info("🔍 لا توجد بيانات حالياً.")
 
-        if col_edit.button("✏️ تعديل الحجز المحدد"):
-            st.info("سيتم إضافة خاصية التعديل الكاملة في التحديث القادم قريبًا إن شاء الله")
-        if col_del.button("🗑️ حذف الحجز", type="secondary"):
-            conn = get_db()
-            conn.execute("DELETE FROM bookings WHERE id = ?", (selected_id,))
-            conn.commit()
-            st.success("✅ تم الحذف بنجاح")
-            st.rerun()
+        
 
 # ==================== تبويب 4: تصدير Word ====================
     with tabs[3]:
