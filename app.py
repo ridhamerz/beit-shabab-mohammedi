@@ -191,4 +191,62 @@ def current_occupied_df(df_bookings: pd.DataFrame, today: date):
     d["check_in_d"] = pd.to_datetime(d["check_in"], errors="coerce").dt.date
     d["check_out_d"] = pd.to_datetime(d["check_out"], errors="coerce").dt.date
     # يعتبر “حالي” إذا status IN و اليوم داخل المدة
-    d = d[(d["status"].fillna("IN") == "IN
+            # تكملة الجزء المقطوع وإغلاق الدالة
+        d = d[d["status"].fillna("IN") == "IN"]
+        return d
+    return pd.DataFrame()
+
+# --- 4. تشغيل النظام والواجهة الرسومية ---
+init_db()
+wings_data = load_wings()
+df_all = load_bookings()
+
+# التحقق من الدخول
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.markdown('<div class="main-title">🔐 تسجيل الدخول للنظام</div>', unsafe_allow_html=True)
+    role = st.selectbox("الصلاحية", ["مدير", "عون استقبال"])
+    pwd = st.text_input("كلمة المرور", type="password")
+    if st.button("دخول آمن", use_container_width=True):
+        with get_conn() as conn:
+            user = conn.execute("SELECT password_hash FROM users WHERE role=?", (role,)).fetchone()
+            if user and sha256(pwd) == user[0]:
+                st.session_state.authenticated = True
+                st.session_state.role = role
+                st.rerun()
+            else:
+                st.error("❌ كلمة المرور خاطئة")
+    st.stop()
+
+# القائمة الجانبية
+st.sidebar.title(f"👤 {st.session_state.role}")
+if st.sidebar.button("تسجيل الخروج"):
+    st.session_state.authenticated = False
+    st.rerun()
+
+# التبويبات
+tabs = st.tabs(["🏠 الرئيسية", "➕ حجز جديد", "📂 الأرشيف"])
+
+with tabs[0]:
+    st.subheader("📊 حالة الغرف والأسرة")
+    with get_conn() as conn:
+        occ_beds = pd.read_sql("SELECT wing, room, bed FROM bookings WHERE status='IN'", conn)
+    
+    for wing, rooms in wings_data.items():
+        st.markdown(f'<div class="wing-header">{wing}</div>', unsafe_allow_html=True)
+        for room, count in rooms.items():
+            cols = st.columns([1, 5])
+            cols[0].write(f"**{room}**")
+            html = ""
+            for b in range(1, count + 1):
+                b_name = f"سرير {b}"
+                is_occ = not occ_beds[(occ_beds['wing'] == wing) & (occ_beds['room'] == room) & (occ_beds['bed'] == b_name)].empty
+                status = "occupied" if is_occ else "free"
+                html += f'<div class="bed-box {status}">{b}</div>'
+            cols[1].markdown(html, unsafe_allow_html=True)
+
+# تذييل المطور
+st.markdown(f'<div class="developer-footer">برمجة وتطوير: ®ridha_merzoug® - {date.today().year}</div>', unsafe_allow_html=True)
+
